@@ -110,14 +110,14 @@ async def _crawl_artist_songs_meta(
     except _CantObtainArtistIDError:
         _logger.warning(f'Can\'t obtain id for artist: "{artist_name}".')
     except RequesterError:
-        _save_failed_artist(failed_artist_names_file_path, artist_name)
+        _save_failed_artist_name(failed_artist_names_file_path, artist_name)
     else:
         for page_number in count(start=1):
             url = f'https://genius.com/api/artists/{artist_id}/songs?page={page_number}'
             try:
                 page_text = await requester.get(url)
             except RequesterError:
-                _save_failed_artist(failed_artist_names_file_path, artist_name)
+                _save_failed_artist_name(failed_artist_names_file_path, artist_name)
             response_data = orjson.loads(page_text)
             if response_data['meta']['status'] != 200:
                 _logger.warning(f'Can\'t obtain songs meta from url (status != 200): {url}')
@@ -140,7 +140,7 @@ async def _save_artist_songs_meta(out_file_path, songs_meta):
             await out_file.flush()
 
 
-async def _save_failed_artist(out_file_path, artist_name):
+async def _save_failed_artist_name(out_file_path, artist_name):
     async with aiofiles.open(out_file_path, 'a') as out_file:
         await out_file.write(artist_name)
         await out_file.wite('\n')
