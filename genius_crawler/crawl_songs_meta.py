@@ -109,6 +109,8 @@ async def _crawl_artist_songs_meta(
         artist_id = await _crawl_artist_id(requester, failed_artist_names_file_path, artist_name)
     except _CantObtainArtistIDError:
         _logger.warning(f'Can\'t obtain id for artist: "{artist_name}".')
+    except RequesterError:
+        _save_failed_artist(failed_artist_names_file_path, artist_name)
     else:
         for page_number in count(start=1):
             url = f'https://genius.com/api/artists/{artist_id}/songs?page={page_number}'
@@ -146,10 +148,7 @@ async def _save_failed_artist(out_file_path, artist_name):
 
 async def _crawl_artist_id(requester: Requester, failed_artist_names_file_path, artist_name):
     url = f'https://genius.com/artists/{artist_name}'
-    try:
-        page_text = await requester.get(url)
-    except RequesterError:
-        _save_failed_artist(failed_artist_names_file_path, artist_name)
+    page_text = await requester.get(url)
     matches = re.finditer(r'meta content="/artists/(\d+)" name="newrelic-resource-path"', page_text)
     try:
         artist_id = int(next(matches).group(1))
