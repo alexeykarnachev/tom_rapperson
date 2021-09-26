@@ -19,8 +19,8 @@ def _parse_args():
     parser = ArgumentParser(description='Parses all artist names from the genius.com site.')
     parser.add_argument(
         '--out_file_path',
-        required=True,
         type=str,
+        required=True,
         help='Path to the output text file to store artist names.',
     )
     return parser.parse_args()
