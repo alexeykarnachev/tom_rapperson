@@ -159,7 +159,7 @@ async def _save_artist_songs_meta(out_file_path, songs_meta):
 async def _save_artist_name(out_file_path, artist_name):
     async with aiofiles.open(out_file_path, 'a') as out_file:
         await out_file.write(artist_name)
-        await out_file.wite('\n')
+        await out_file.write('\n')
 
 
 async def _crawl_artist_id(requester: Requester, failed_artist_names_file_path, artist_name):
