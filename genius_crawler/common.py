@@ -13,9 +13,10 @@ class RequesterError(Exception):
 
 
 class Requester:
-    def __init__(self, concurrency, timeout, n_retries):
+    def __init__(self, concurrency, timeout=5, n_retries=5, wait_before_retry=5):
         self._timeout = timeout
         self._n_retries = n_retries
+        self._wait_before_retry = wait_before_retry
         self._semaphore = asyncio.BoundedSemaphore(concurrency)
 
     async def get(self, url, headers=None) -> Optional[str]:
@@ -31,6 +32,7 @@ class Requester:
                         return text
                 except (asyncio.TimeoutError, ClientConnectionError):
                     _logger.warning(f'Retrying [{i_retry + 1}/{self._n_retries}]: {url}')
+                    asyncio.sleep(self._wait_before_retry)
             else:
                 _logger.warning(f'Max number of retries exceeded for page: {url}')
                 raise RequesterError

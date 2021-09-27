@@ -32,10 +32,16 @@ def _parse_args():
         help='Path to the output jsonl file to store songs meta.',
     )
     parser.add_argument(
+        '--crawled_artist_names_file_path',
+        type=str,
+        required=True,
+        help='Path to the output text file to store artist names which have been already crawled.',
+    )
+    parser.add_argument(
         '--failed_artist_names_file_path',
         type=str,
         required=True,
-        help='Path to the output text file to store artist names which failed to be parsed.',
+        help='Path to the output text file to store artist names which failed to be crawled.',
     )
     parser.add_argument(
         '--concurrency',
@@ -48,22 +54,28 @@ def _parse_args():
 
 def main():
     args = _parse_args()
-    if Path(args.songs_meta_file_path).exists() or Path(args.failed_artist_names_file_path).exists():
-        raise FileExistsError('Passed `songs_meta_file_path` or `failed_artist_names_file_path` exist.')
+    _validate_args(args)
     artist_names = _read_artist_names(args.artist_names_file_path)
-    requester = Requester(
-        concurrency=args.concurrency,
-        timeout=5,
-        n_retries=5,
-    )
+    requester = Requester(concurrency=args.concurrency)
     loop = asyncio.get_event_loop()
     coroutine = _crawl_all_artists_songs_meta(
         requester=requester,
         songs_meta_file_path=args.songs_meta_file_path,
+        crawled_artist_names_file_path=args.crawled_artist_names_file_path,
         failed_artist_names_file_path=args.failed_artist_names_file_path,
         artist_names=artist_names,
     )
     loop.run_until_complete(coroutine)
+
+
+def _validate_args(args):
+    for file_path in (
+            args.songs_meta_file_path,
+            args.crawled_artist_names_file_path,
+            args.failed_artist_names_file_path,
+    ):
+        if Path(file_path).exists():
+            raise FileExistsError(file_path)
 
 
 def _read_artist_names(file_path):
@@ -84,6 +96,7 @@ async def _crawl_all_artists_songs_meta(
         requester: Requester,
         songs_meta_file_path,
         failed_artist_names_file_path,
+        crawled_artist_names_file_path,
         artist_names,
 ):
     coroutines = []
@@ -92,6 +105,7 @@ async def _crawl_all_artists_songs_meta(
             requester=requester,
             songs_meta_file_path=songs_meta_file_path,
             failed_artist_names_file_path=failed_artist_names_file_path,
+            crawled_artist_names_file_path=crawled_artist_names_file_path,
             artist_name=artist_name,
         )
         coroutines.append(coroutine)
@@ -102,6 +116,7 @@ async def _crawl_artist_songs_meta(
         requester: Requester,
         songs_meta_file_path,
         failed_artist_names_file_path,
+        crawled_artist_names_file_path,
         artist_name,
 ):
     songs_meta = []
@@ -110,14 +125,14 @@ async def _crawl_artist_songs_meta(
     except _CantObtainArtistIDError:
         _logger.warning(f'Can\'t obtain id for artist: "{artist_name}".')
     except RequesterError:
-        _save_failed_artist_name(failed_artist_names_file_path, artist_name)
+        await _save_artist_name(failed_artist_names_file_path, artist_name)
     else:
         for page_number in count(start=1):
             url = f'https://genius.com/api/artists/{artist_id}/songs?page={page_number}'
             try:
                 page_text = await requester.get(url)
             except RequesterError:
-                _save_failed_artist_name(failed_artist_names_file_path, artist_name)
+                await _save_artist_name(failed_artist_names_file_path, artist_name)
             response_data = orjson.loads(page_text)
             if response_data['meta']['status'] != 200:
                 _logger.warning(f'Can\'t obtain songs meta from url (status != 200): {url}')
@@ -129,6 +144,7 @@ async def _crawl_artist_songs_meta(
             elif next_page_number != page_number + 1:
                 raise ValueError(f'Unexpected next page number for url: {url}')
     await _save_artist_songs_meta(songs_meta_file_path, songs_meta)
+    await _save_artist_name(crawled_artist_names_file_path, artist_name)
     _logger.info(f'Crawled {len(songs_meta)} songs meta for "{artist_name}"')
 
 
@@ -140,7 +156,7 @@ async def _save_artist_songs_meta(out_file_path, songs_meta):
             await out_file.flush()
 
 
-async def _save_failed_artist_name(out_file_path, artist_name):
+async def _save_artist_name(out_file_path, artist_name):
     async with aiofiles.open(out_file_path, 'a') as out_file:
         await out_file.write(artist_name)
         await out_file.wite('\n')
