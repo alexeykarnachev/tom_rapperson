@@ -146,7 +146,11 @@ async def _crawl_artist_songs_meta(
                     page_text = await requester.get(url)
                 except RequesterError:
                     await _save_artist_name(failed_artist_names_file_path, artist_name)
-                response_data = orjson.loads(page_text)
+                try:
+                    response_data = orjson.loads(page_text)
+                except orjson.JSONDecodeError:
+                    _logger.warning(f'Broken json for url {url}')
+                    break
                 if response_data['meta']['status'] != 200:
                     _logger.warning(f'Can\'t obtain songs meta from url (status != 200): {url}')
                     break
