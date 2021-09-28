@@ -46,8 +46,15 @@ def _parse_args():
     parser.add_argument(
         '--concurrency',
         type=int,
-        required=False,
+        required=True,
         help='Max number of simultaneous requests to the genius.com.',
+    )
+    parser.add_argument(
+        '--max_n_simultaneous_tasks',
+        type=int,
+        required=False,
+        default=100,
+        help='Max number of simultaneous tasks runned in the async loop.',
     )
     return parser.parse_args()
 
@@ -60,6 +67,7 @@ def main():
     loop = asyncio.get_event_loop()
     coroutine = _crawl_all_artists_songs_meta(
         requester=requester,
+        max_n_simultaneous_tasks=args.max_n_simultaneous_tasks,
         songs_meta_file_path=args.songs_meta_file_path,
         crawled_artist_names_file_path=args.crawled_artist_names_file_path,
         failed_artist_names_file_path=args.failed_artist_names_file_path,
@@ -94,58 +102,63 @@ class _CantObtainArtistIDError(Exception):
 
 async def _crawl_all_artists_songs_meta(
         requester: Requester,
+        max_n_simultaneous_tasks,
         songs_meta_file_path,
         failed_artist_names_file_path,
         crawled_artist_names_file_path,
         artist_names,
 ):
-    coroutines = []
+    semaphore = asyncio.BoundedSemaphore(max_n_simultaneous_tasks)
+    jobs = []
     for artist_name in artist_names:
         coroutine = _crawl_artist_songs_meta(
             requester=requester,
+            semaphore=semaphore,
             songs_meta_file_path=songs_meta_file_path,
             failed_artist_names_file_path=failed_artist_names_file_path,
             crawled_artist_names_file_path=crawled_artist_names_file_path,
             artist_name=artist_name,
         )
-        coroutines.append(coroutine)
-    await asyncio.gather(*coroutines)
+        jobs.append(asyncio.ensure_future(coroutine))
+    await asyncio.gather(*jobs)
 
 
 async def _crawl_artist_songs_meta(
         requester: Requester,
+        semaphore,
         songs_meta_file_path,
         failed_artist_names_file_path,
         crawled_artist_names_file_path,
         artist_name,
 ):
-    songs_meta = []
-    try:
-        artist_id = await _crawl_artist_id(requester, failed_artist_names_file_path, artist_name)
-    except _CantObtainArtistIDError:
-        _logger.warning(f'Can\'t obtain id for artist: "{artist_name}".')
-    except RequesterError:
-        await _save_artist_name(failed_artist_names_file_path, artist_name)
-    else:
-        for page_number in count(start=1):
-            url = f'https://genius.com/api/artists/{artist_id}/songs?page={page_number}'
-            try:
-                page_text = await requester.get(url)
-            except RequesterError:
-                await _save_artist_name(failed_artist_names_file_path, artist_name)
-            response_data = orjson.loads(page_text)
-            if response_data['meta']['status'] != 200:
-                _logger.warning(f'Can\'t obtain songs meta from url (status != 200): {url}')
-                break
-            songs_meta.extend(response_data['response']['songs'])
-            next_page_number = response_data['response']['next_page']
-            if next_page_number is None:
-                break
-            elif next_page_number != page_number + 1:
-                raise ValueError(f'Unexpected next page number for url: {url}')
-    await _save_artist_songs_meta(songs_meta_file_path, songs_meta)
-    await _save_artist_name(crawled_artist_names_file_path, artist_name)
-    _logger.info(f'Crawled {len(songs_meta)} songs meta for "{artist_name}"')
+    async with semaphore:
+        songs_meta = []
+        try:
+            artist_id = await _crawl_artist_id(requester, failed_artist_names_file_path, artist_name)
+        except _CantObtainArtistIDError:
+            _logger.warning(f'Can\'t obtain id for artist: "{artist_name}".')
+        except RequesterError:
+            await _save_artist_name(failed_artist_names_file_path, artist_name)
+        else:
+            for page_number in count(start=1):
+                url = f'https://genius.com/api/artists/{artist_id}/songs?page={page_number}'
+                try:
+                    page_text = await requester.get(url)
+                except RequesterError:
+                    await _save_artist_name(failed_artist_names_file_path, artist_name)
+                response_data = orjson.loads(page_text)
+                if response_data['meta']['status'] != 200:
+                    _logger.warning(f'Can\'t obtain songs meta from url (status != 200): {url}')
+                    break
+                songs_meta.extend(response_data['response']['songs'])
+                next_page_number = response_data['response']['next_page']
+                if next_page_number is None:
+                    break
+                elif next_page_number != page_number + 1:
+                    raise ValueError(f'Unexpected next page number for url: {url}')
+        await _save_artist_songs_meta(songs_meta_file_path, songs_meta)
+        await _save_artist_name(crawled_artist_names_file_path, artist_name)
+        _logger.info(f'Crawled {len(songs_meta)} songs meta for "{artist_name}"')
 
 
 async def _save_artist_songs_meta(out_file_path, songs_meta):
