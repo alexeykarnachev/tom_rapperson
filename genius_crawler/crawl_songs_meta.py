@@ -131,6 +131,8 @@ async def _crawl_artist_songs_meta(
         crawled_artist_names_file_path,
         artist_name,
 ):
+    save_artist_songs_meta_semaphore = asyncio.BoundedSemaphore(1)
+    save_artist_name_semaphore = asyncio.BoundedSemaphore(1)
     async with semaphore:
         songs_meta = []
         try:
@@ -160,23 +162,26 @@ async def _crawl_artist_songs_meta(
                     break
                 elif next_page_number != page_number + 1:
                     raise ValueError(f'Unexpected next page number for url: {url}')
-        await _save_artist_songs_meta(songs_meta_file_path, songs_meta)
-        await _save_artist_name(crawled_artist_names_file_path, artist_name)
+        await _save_artist_songs_meta(songs_meta_file_path, songs_meta, save_artist_songs_meta_semaphore)
+        await _save_artist_name(crawled_artist_names_file_path, artist_name, save_artist_name_semaphore)
         _logger.info(f'Crawled {len(songs_meta)} songs meta for "{artist_name}"')
 
 
-async def _save_artist_songs_meta(out_file_path, songs_meta):
-    async with aiofiles.open(out_file_path, "ab") as out_file:
-        for song_meta in songs_meta:
-            await out_file.write(orjson.dumps(song_meta))
-            await out_file.write(b'\n')
+async def _save_artist_songs_meta(out_file_path, songs_meta, semaphore):
+    async with semaphore:
+        async with aiofiles.open(out_file_path, "ab") as out_file:
+            for song_meta in songs_meta:
+                await out_file.write(orjson.dumps(song_meta))
+                await out_file.write(b'\n')
+                await out_file.flush()
+
+
+async def _save_artist_name(out_file_path, artist_name, semaphore):
+    async with semaphore:
+        async with aiofiles.open(out_file_path, 'a') as out_file:
+            await out_file.write(artist_name)
+            await out_file.write('\n')
             await out_file.flush()
-
-
-async def _save_artist_name(out_file_path, artist_name):
-    async with aiofiles.open(out_file_path, 'a') as out_file:
-        await out_file.write(artist_name)
-        await out_file.write('\n')
 
 
 async def _crawl_artist_id(requester: Requester, failed_artist_names_file_path, artist_name):
