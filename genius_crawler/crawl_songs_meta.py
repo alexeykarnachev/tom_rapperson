@@ -140,7 +140,7 @@ async def _crawl_artist_songs_meta(
         except _CantObtainArtistIDError:
             _logger.warning(f'Can\'t obtain id for artist: "{artist_name}".')
         except RequesterError:
-            await _save_artist_name(failed_artist_names_file_path, artist_name)
+            await _save_artist_name(failed_artist_names_file_path, artist_name, save_artist_name_semaphore)
         else:
             for page_number in count(start=1):
                 url = f'https://genius.com/api/artists/{artist_id}/songs?page={page_number}'
