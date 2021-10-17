@@ -141,17 +141,15 @@ async def _crawl_all_songs(
 ):
     crawl_song_semaphore = asyncio.BoundedSemaphore(max_n_simultaneous_tasks)
     async for song_meta in songs_meta_async_gen:
-        async with crawl_song_semaphore:
-            coroutine = _crawl_song(
-                song_meta=song_meta,
-                requester=requester,
-                out_file_path=out_file_path,
-                failed_song_ids_file_path=failed_song_ids_file_path,
-                crawled_song_ids_file_path=crawled_song_ids_file_path,
-                min_song_n_lines=min_song_n_lines,
-                crawl_song_semaphore=crawl_song_semaphore,
-            )
-            asyncio.ensure_future(coroutine)
+        await _crawl_song(
+            song_meta=song_meta,
+            requester=requester,
+            out_file_path=out_file_path,
+            failed_song_ids_file_path=failed_song_ids_file_path,
+            crawled_song_ids_file_path=crawled_song_ids_file_path,
+            min_song_n_lines=min_song_n_lines,
+            crawl_song_semaphore=crawl_song_semaphore,
+        )
 
 
 async def _crawl_song(
@@ -163,26 +161,27 @@ async def _crawl_song(
         min_song_n_lines,
         crawl_song_semaphore,
 ):
-    if song_meta['instrumental'] or song_meta['lyrics_state'] != 'complete':
-        return
-    url = song_meta['url']
-    id_ = str(song_meta['id'])
-    _logger.info(f'Crawling song: {url}')
-    try:
-        page_text = await requester.get(url, headers=_HEADERS)
-        song_lines = _get_song_lines_from_page_text(page_text)
-    except (RequesterError, AttributeError):
-        await _append_line_to_file(failed_song_ids_file_path, id_ + '\n')
-        _logger.info(f'Fail to crawl song: {url}')
-        return
-    if len(song_lines) < min_song_n_lines:
-        return
-    song_text = '\n'.join(song_lines)
-    song_meta['text'] = song_text
-    song_meta_payload = orjson.dumps(song_meta).decode() + '\n'
-    await _append_line_to_file(out_file_path, song_meta_payload)
-    await _append_line_to_file(crawled_song_ids_file_path, id_ + '\n')
-    _logger.info(f'Song crawled ({len(song_text)} chars): {url}')
+    async with crawl_song_semaphore:
+        if song_meta['instrumental'] or song_meta['lyrics_state'] != 'complete':
+            return
+        url = song_meta['url']
+        id_ = str(song_meta['id'])
+        _logger.info(f'Crawling song: {url}')
+        try:
+            page_text = await requester.get(url, headers=_HEADERS)
+            song_lines = _get_song_lines_from_page_text(page_text)
+        except (RequesterError, AttributeError):
+            await _append_line_to_file(failed_song_ids_file_path, id_ + '\n')
+            _logger.info(f'Fail to crawl song: {url}')
+            return
+        if len(song_lines) < min_song_n_lines:
+            return
+        song_text = '\n'.join(song_lines)
+        song_meta['text'] = song_text
+        song_meta_payload = orjson.dumps(song_meta).decode() + '\n'
+        await _append_line_to_file(out_file_path, song_meta_payload)
+        await _append_line_to_file(crawled_song_ids_file_path, id_ + '\n')
+        _logger.info(f'Song crawled ({len(song_text)} chars): {url}')
 
 
 def _get_song_lines_from_page_text(page_text):
