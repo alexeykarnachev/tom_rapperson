@@ -140,7 +140,11 @@ async def _crawl_all_songs(
         min_song_n_lines,
 ):
     crawl_song_semaphore = asyncio.BoundedSemaphore(max_n_simultaneous_tasks)
+    crawled_song_ids = set()
     async for song_meta in songs_meta_async_gen:
+        if song_meta['id'] in crawled_song_ids:
+            continue
+        crawled_song_ids.add(song_meta['id'])
         coroutine = _crawl_song(
             song_meta=song_meta,
             requester=requester,
