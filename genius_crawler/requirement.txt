@@ -2,3 +2,4 @@ aiohttp==3.7.4.post0
 orjson==3.6.3
 aiofiles==0.7.0
 more_itertools==8.10.0
+langdetect==1.0.9
