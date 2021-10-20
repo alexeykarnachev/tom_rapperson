@@ -37,8 +37,8 @@ def main(songs_file_path, out_file_path, n_workers, min_n_words_in_song):
 
 
 class _Annotator:
-    _WRITE_CHUNK_SIZE = 1000
-    _LOG_EACH_N_LINES = 1000
+    _WRITE_CHUNK_SIZE = 10000
+    _LOG_EACH_N_LINES = 10000
 
     def __init__(self, songs_file_path, out_file_path, n_workers, min_n_words_in_song):
         self._songs_file_path = songs_file_path
@@ -79,13 +79,13 @@ class _Annotator:
                 if i_word == self._min_n_words_in_song:
                     break
             else:
-                _logger.error(f"Song has not enough words to be annotated, song will be skipped: {text}")
+                _logger.debug(f"Song has not enough words to be annotated, song will be skipped: {text}")
                 continue
             try:
                 langs = {x.lang: x.prob for x in detect_langs(text)}
             except LangDetectException:
                 langs = None
-                _logger.error(f"Can't detect language, song will be skipped: {text[:50]}...")
+                _logger.debug(f"Can't detect language, song will be skipped: {text[:50]}...")
             out_data = {
                 'full_title': line_data['full_title'],
                 'title': line_data['title'],
