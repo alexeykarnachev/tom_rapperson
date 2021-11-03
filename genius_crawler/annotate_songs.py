@@ -1,4 +1,5 @@
 import logging
+import os
 import re
 from argparse import ArgumentParser
 from itertools import cycle
@@ -43,6 +44,8 @@ class _Annotator:
     def __init__(self, songs_file_path, out_file_path, n_workers, min_n_words_in_song):
         self._songs_file_path = songs_file_path
         self._out_file_path = out_file_path
+        if os.path.isfile(self._out_file_path):
+            raise FileExistsError(self._out_file_path)
         self._n_workers = n_workers
         self._min_n_words_in_song = min_n_words_in_song
         self._out_file_lock = Lock()
@@ -64,7 +67,7 @@ class _Annotator:
     def _write_out_lines(self, out_lines):
         _logger.info(f'Writing {len(out_lines)} lines...')
         with self._out_file_lock:
-            with open(self._out_file_path, 'wb') as out_file:
+            with open(self._out_file_path, 'ab') as out_file:
                 for line in out_lines:
                     out_file.write(line)
                     out_file.write(b'\n')
