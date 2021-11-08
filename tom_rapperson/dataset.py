@@ -7,15 +7,15 @@ from more_itertools import chunked
 from torch.distributed import get_rank, get_world_size
 from torch.utils.data import DataLoader, Dataset, Sampler
 
-_INPUT_IDS_FILE_NAME = 'input_ids.bin'
-_SEQUENCE_LENGTHS_FILE_NAME = 'sequence_lengths.bin'
+INPUT_IDS_FILE_NAME = 'input_ids.bin'
+SEQUENCE_LENGTHS_FILE_NAME = 'sequence_lengths.bin'
 
 
 class SerializedDataset(Dataset):
     def __init__(self, dir_):
         dir_ = Path(dir_)
-        self._input_ids = np.load(dir_ / _INPUT_IDS_FILE_NAME)
-        self._sequence_lengths = np.load(dir_ / _SEQUENCE_LENGTHS_FILE_NAME)
+        self._input_ids = np.load(dir_ / INPUT_IDS_FILE_NAME)
+        self._sequence_lengths = np.load(dir_ / SEQUENCE_LENGTHS_FILE_NAME)
         self._sequence_lengths_cumsum = np.cumsum(self._sequence_lengths)
 
     def __len__(self):
