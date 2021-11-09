@@ -18,6 +18,8 @@ def _parse_args():
     parser = ArgumentParser()
     parser.add_argument('--train-songs-file-path', type=str, required=True)
     parser.add_argument('--valid-songs-file-path', type=str, required=True)
+    parser.add_argument('--tokenizer-name-or-path', type=str, required=True)
+    parser.add_argument('--max-n-tokens', type=int, required=True)
     parser.add_argument('--out-dir', type=str, required=True)
     return parser.parse_args()
 
@@ -74,3 +76,9 @@ def main(train_songs_file_path, valid_songs_file_path, tokenizer_name_or_path, m
         data_out_dir.mkdir(exist_ok=True, parents=True)
         np.save(data_out_dir / INPUT_IDS_FILE_NAME, input_ids)
         np.save(data_out_dir / SEQUENCE_LENGTHS_FILE_NAME, sequence_lengths)
+        encoder.save(data_out_dir / 'encoder.pkl')
+
+
+if __name__ == '__main__':
+    args = _parse_args()
+    main(**vars(args))

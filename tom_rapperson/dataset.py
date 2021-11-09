@@ -7,15 +7,15 @@ from more_itertools import chunked
 from torch.distributed import get_rank, get_world_size
 from torch.utils.data import DataLoader, Dataset, Sampler
 
-INPUT_IDS_FILE_NAME = 'input_ids.bin'
-SEQUENCE_LENGTHS_FILE_NAME = 'sequence_lengths.bin'
+INPUT_IDS_FILE_NAME = 'input_ids'
+SEQUENCE_LENGTHS_FILE_NAME = 'sequence_lengths'
 
 
 class SerializedDataset(Dataset):
     def __init__(self, dir_):
         dir_ = Path(dir_)
-        self._input_ids = np.load(dir_ / INPUT_IDS_FILE_NAME)
-        self._sequence_lengths = np.load(dir_ / SEQUENCE_LENGTHS_FILE_NAME)
+        self._input_ids = np.load(dir_ / (INPUT_IDS_FILE_NAME + '.npy'))
+        self._sequence_lengths = np.load(dir_ / (SEQUENCE_LENGTHS_FILE_NAME + '.npy'))
         self._sequence_lengths_cumsum = np.cumsum(self._sequence_lengths)
 
     def __len__(self):
@@ -25,9 +25,9 @@ class SerializedDataset(Dataset):
         start_idx = 0 if idx == 0 else self._sequence_lengths_cumsum[idx - 1]
         end_idx = start_idx + self._sequence_lengths[idx]
         input_ids = self._input_ids[start_idx:end_idx]
-        return input_ids
+        return torch.tensor(input_ids.astype(np.int64), dtype=torch.long)
 
-    def get_dataloader(self, batch_size, seed, is_distributed):
+    def get_dataloader(self, batch_size, seed):
         return DataLoader(
             dataset=self,
             batch_size=batch_size,
@@ -36,7 +36,7 @@ class SerializedDataset(Dataset):
                 sort_chunk_size=batch_size * 10,
                 samples_offset=0,
                 seed=seed,
-                is_distributed=is_distributed,
+                is_distributed=False,
             ),
             num_workers=1,
             collate_fn=_PaddingCollator(pad_value=0),

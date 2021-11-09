@@ -20,6 +20,10 @@ class SongsEncoder:
         self._vocab_size = len(self._tokenizer.get_vocab())
         self._dtype = np.dtype('uint16') if self._vocab_size < _MAX_VOCAB_SIZE_FOR_UINT16 else np.dtype('uint32')
 
+    @property
+    def vocab_size(self):
+        return max(self._tokenizer.all_special_ids) + 1
+
     def encode(self, text, artist_name):
         text = self._prepare_text(text, artist_name)
         input_ids = self._tokenizer.encode(text)
@@ -43,7 +47,8 @@ class SongsEncoder:
         with open(out_file_path, 'wb') as out_file:
             pickle.dump(self, out_file, protocol=pickle.HIGHEST_PROTOCOL)
 
-    def load(self, file_path):
+    @staticmethod
+    def load(file_path):
         with open(file_path, 'rb') as inp_file:
             return pickle.load(inp_file)
 
