@@ -1,0 +1,5 @@
+more_itertools==8.10.0
+pytorch_lightning==1.5.0
+transformers==4.12.3
+orjson==3.6.3
+wandb==0.12.6

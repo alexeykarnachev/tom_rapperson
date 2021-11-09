@@ -131,3 +131,5 @@ dmypy.json
 # Custom
 .vscode/
 nohup.out
+cmd
+wandb/
