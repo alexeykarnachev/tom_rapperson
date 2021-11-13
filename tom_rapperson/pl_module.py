@@ -1,10 +1,12 @@
+import json
+import math
 from pathlib import Path
 
 import numpy as np
 from pytorch_lightning import LightningModule
 from transformers import AdamW, get_linear_schedule_with_warmup
 
-from tom_rapperson.dataset import SerializedDataset
+from tom_rapperson.dataset import SerializedDataset, get_n_samples
 from tom_rapperson.encoder import SongsEncoder
 from tom_rapperson.model import get_model_from_huggingface_pretrained
 
@@ -16,6 +18,7 @@ class PLModule(LightningModule):
             data_dir,
             batch_size,
             learning_rate,
+            n_accum_steps,
             warmup_ratio,
             seed,
     ):
@@ -23,12 +26,14 @@ class PLModule(LightningModule):
         self._huggingface_model_name = huggingface_model_name
         self._batch_size = batch_size
         self._learning_rate = learning_rate
+        self._n_accum_steps = n_accum_steps
         self._warmup_ratio = warmup_ratio
         self._seed = seed
         data_dir = Path(data_dir)
         self._train_dir = data_dir / 'train'
         self._valid_dir = data_dir / 'valid'
-        encoder = SongsEncoder.load(self._train_dir / 'encoder.pkl')
+        self._n_train_samples = get_n_samples(self._train_dir)
+        encoder = SongsEncoder.load(data_dir)
         self._vocab_size = encoder.vocab_size
         self._model = None
 
@@ -37,6 +42,7 @@ class PLModule(LightningModule):
 
     def setup(self, stage):
         self._model = self._get_model()
+        self.hparams['gpt_config'] = json.dumps(self._model.config.__dict__, ensure_ascii=False)
 
     def train_dataloader(self):
         return self._get_dataloader(self._train_dir)
@@ -71,12 +77,13 @@ class PLModule(LightningModule):
 
     def configure_optimizers(self):
         optimizer = AdamW(params=self._model.parameters(), lr=self._learning_rate)
-        max_steps = self.trainer.max_steps
-        num_warmup_steps = int(max_steps * self._warmup_ratio)
+        batch_size_per_step = self._batch_size * self.trainer.world_size * self._n_accum_steps
+        num_steps = self.trainer.max_epochs * math.ceil(self._n_train_samples / batch_size_per_step)
+        num_warmup_steps = int(num_steps * self._warmup_ratio)
         lr_scheduler = get_linear_schedule_with_warmup(
             optimizer=optimizer,
             num_warmup_steps=num_warmup_steps,
-            num_training_steps=max_steps,
+            num_training_steps=num_steps,
         )
         lr_scheduler = {'scheduler': lr_scheduler, 'interval': 'step', 'frequency': 1}
         return [optimizer], [lr_scheduler]

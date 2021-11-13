@@ -52,6 +52,7 @@ def _iterate_on_text_and_artist_names_pairs(songs_file_path):
 
 
 def main(train_songs_file_path, valid_songs_file_path, tokenizer_name_or_path, max_n_tokens, out_dir):
+    Path(out_dir).mkdir(exist_ok=True, parents=True)
     artist_names_counter = _count_artist_names(train_songs_file_path)
     artist_names = _filter_artist_names(artist_names_counter, min_freq=50)
     encoder = SongsEncoder(
@@ -59,6 +60,7 @@ def main(train_songs_file_path, valid_songs_file_path, tokenizer_name_or_path, m
         max_n_tokens=max_n_tokens,
         artist_names=artist_names,
     )
+    encoder.save(out_dir)
     for data_name, songs_file_path in (('train', train_songs_file_path), ('valid', valid_songs_file_path)):
         input_ids = []
         for text_and_artist_name_pairs in tqdm.tqdm(
@@ -69,14 +71,14 @@ def main(train_songs_file_path, valid_songs_file_path, tokenizer_name_or_path, m
                 desc='Chunks encoded',
         ):
             texts, artist_names = zip(*text_and_artist_name_pairs)
-            input_ids.extend(encoder.batch_encode(texts=texts, artist_names=artist_names))
+            input_ids_ = encoder.batch_encode(texts=texts, artist_names=artist_names)
+            input_ids.extend(input_ids_)
         sequence_lengths = np.array([len(x) for x in input_ids], dtype=np.uint16)
         input_ids = np.hstack(input_ids)
         data_out_dir = Path(out_dir) / data_name
         data_out_dir.mkdir(exist_ok=True, parents=True)
         np.save(data_out_dir / INPUT_IDS_FILE_NAME, input_ids)
         np.save(data_out_dir / SEQUENCE_LENGTHS_FILE_NAME, sequence_lengths)
-        encoder.save(data_out_dir / 'encoder.pkl')
 
 
 if __name__ == '__main__':

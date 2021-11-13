@@ -25,7 +25,7 @@ class SerializedDataset(Dataset):
         start_idx = 0 if idx == 0 else self._sequence_lengths_cumsum[idx - 1]
         end_idx = start_idx + self._sequence_lengths[idx]
         input_ids = self._input_ids[start_idx:end_idx]
-        return torch.tensor(input_ids.astype(np.int64), dtype=torch.long)
+        return (torch.tensor(input_ids.astype(np.int64), dtype=torch.long), )
 
     def get_dataloader(self, batch_size, seed):
         return DataLoader(
@@ -41,6 +41,11 @@ class SerializedDataset(Dataset):
             num_workers=1,
             collate_fn=_PaddingCollator(pad_value=0),
         )
+
+
+def get_n_samples(dir_):
+    sequence_lengths = np.load(dir_ / (SEQUENCE_LENGTHS_FILE_NAME + '.npy'))
+    return len(sequence_lengths)
 
 
 class _PaddingCollator:

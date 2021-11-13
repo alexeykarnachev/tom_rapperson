@@ -1,9 +1,25 @@
-from transformers import GPT2LMHeadModel
+import json
+import re
+
+import torch
+from transformers import GPT2Config, GPT2LMHeadModel
 
 
 def get_model_from_huggingface_pretrained(model_name, vocab_size) -> GPT2LMHeadModel:
     model = GPT2LMHeadModel.from_pretrained(model_name)
     _resize_embeddings(model, vocab_size)
+    return model
+
+
+def get_model_from_pl_checkpoint(file_path) -> GPT2LMHeadModel:
+    checkpoint = torch.load(f=file_path, map_location='cpu')
+    state_dict = checkpoint['state_dict']
+    state_dict = {re.sub(r'^_model\.', '', name): weights for name, weights in state_dict.items()}
+    vocab_size = state_dict['transformer.wte.weight'].size()[0]
+    gpt_config = json.loads(checkpoint['hyper_parameters']['gpt_config'])
+    model = GPT2LMHeadModel(GPT2Config(**gpt_config))
+    _resize_embeddings(model=model, vocab_size=vocab_size)
+    model.load_state_dict(state_dict)
     return model
 
 

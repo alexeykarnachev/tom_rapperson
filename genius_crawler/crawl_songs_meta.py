@@ -46,15 +46,8 @@ def _parse_args():
     parser.add_argument(
         '--concurrency',
         type=int,
-        required=True,
-        help='Max number of simultaneous requests to the genius.com.',
-    )
-    parser.add_argument(
-        '--max_n_simultaneous_tasks',
-        type=int,
         required=False,
-        default=100,
-        help='Max number of simultaneous tasks runned in the async loop.',
+        help='Max number of simultaneous requests to the genius.com.',
     )
     return parser.parse_args()
 
@@ -67,7 +60,6 @@ def main():
     loop = asyncio.get_event_loop()
     coroutine = _crawl_all_artists_songs_meta(
         requester=requester,
-        max_n_simultaneous_tasks=args.max_n_simultaneous_tasks,
         songs_meta_file_path=args.songs_meta_file_path,
         crawled_artist_names_file_path=args.crawled_artist_names_file_path,
         failed_artist_names_file_path=args.failed_artist_names_file_path,
@@ -102,86 +94,72 @@ class _CantObtainArtistIDError(Exception):
 
 async def _crawl_all_artists_songs_meta(
         requester: Requester,
-        max_n_simultaneous_tasks,
         songs_meta_file_path,
         failed_artist_names_file_path,
         crawled_artist_names_file_path,
         artist_names,
 ):
-    semaphore = asyncio.BoundedSemaphore(max_n_simultaneous_tasks)
-    jobs = []
+    coroutines = []
     for artist_name in artist_names:
         coroutine = _crawl_artist_songs_meta(
             requester=requester,
-            semaphore=semaphore,
             songs_meta_file_path=songs_meta_file_path,
             failed_artist_names_file_path=failed_artist_names_file_path,
             crawled_artist_names_file_path=crawled_artist_names_file_path,
             artist_name=artist_name,
         )
-        jobs.append(asyncio.ensure_future(coroutine))
-    await asyncio.gather(*jobs)
+        coroutines.append(coroutine)
+    await asyncio.gather(*coroutines)
 
 
 async def _crawl_artist_songs_meta(
         requester: Requester,
-        semaphore,
         songs_meta_file_path,
         failed_artist_names_file_path,
         crawled_artist_names_file_path,
         artist_name,
 ):
-    save_artist_songs_meta_semaphore = asyncio.BoundedSemaphore(1)
-    save_artist_name_semaphore = asyncio.BoundedSemaphore(1)
-    async with semaphore:
-        songs_meta = []
-        try:
-            artist_id = await _crawl_artist_id(requester, failed_artist_names_file_path, artist_name)
-        except _CantObtainArtistIDError:
-            _logger.warning(f'Can\'t obtain id for artist: "{artist_name}".')
-        except RequesterError:
-            await _save_artist_name(failed_artist_names_file_path, artist_name, save_artist_name_semaphore)
-        else:
-            for page_number in count(start=1):
-                url = f'https://genius.com/api/artists/{artist_id}/songs?page={page_number}'
-                try:
-                    page_text = await requester.get(url)
-                except RequesterError:
-                    await _save_artist_name(failed_artist_names_file_path, artist_name)
-                try:
-                    response_data = orjson.loads(page_text)
-                except orjson.JSONDecodeError:
-                    _logger.warning(f'Broken json for url {url}')
-                    break
-                if response_data['meta']['status'] != 200:
-                    _logger.warning(f'Can\'t obtain songs meta from url (status != 200): {url}')
-                    break
-                songs_meta.extend(response_data['response']['songs'])
-                next_page_number = response_data['response']['next_page']
-                if next_page_number is None:
-                    break
-                elif next_page_number != page_number + 1:
-                    raise ValueError(f'Unexpected next page number for url: {url}')
-        await _save_artist_songs_meta(songs_meta_file_path, songs_meta, save_artist_songs_meta_semaphore)
-        await _save_artist_name(crawled_artist_names_file_path, artist_name, save_artist_name_semaphore)
-        _logger.info(f'Crawled {len(songs_meta)} songs meta for "{artist_name}"')
+    songs_meta = []
+    try:
+        artist_id = await _crawl_artist_id(requester, failed_artist_names_file_path, artist_name)
+    except _CantObtainArtistIDError:
+        _logger.warning(f'Can\'t obtain id for artist: "{artist_name}".')
+    except RequesterError:
+        await _save_artist_name(failed_artist_names_file_path, artist_name)
+    else:
+        for page_number in count(start=1):
+            url = f'https://genius.com/api/artists/{artist_id}/songs?page={page_number}'
+            try:
+                page_text = await requester.get(url)
+            except RequesterError:
+                await _save_artist_name(failed_artist_names_file_path, artist_name)
+            response_data = orjson.loads(page_text)
+            if response_data['meta']['status'] != 200:
+                _logger.warning(f'Can\'t obtain songs meta from url (status != 200): {url}')
+                break
+            songs_meta.extend(response_data['response']['songs'])
+            next_page_number = response_data['response']['next_page']
+            if next_page_number is None:
+                break
+            elif next_page_number != page_number + 1:
+                raise ValueError(f'Unexpected next page number for url: {url}')
+    await _save_artist_songs_meta(songs_meta_file_path, songs_meta)
+    await _save_artist_name(crawled_artist_names_file_path, artist_name)
+    _logger.info(f'Crawled {len(songs_meta)} songs meta for "{artist_name}"')
 
 
-async def _save_artist_songs_meta(out_file_path, songs_meta, semaphore):
-    async with semaphore:
-        async with aiofiles.open(out_file_path, "ab") as out_file:
-            for song_meta in songs_meta:
-                await out_file.write(orjson.dumps(song_meta))
-                await out_file.write(b'\n')
-                await out_file.flush()
-
-
-async def _save_artist_name(out_file_path, artist_name, semaphore):
-    async with semaphore:
-        async with aiofiles.open(out_file_path, 'a') as out_file:
-            await out_file.write(artist_name)
-            await out_file.write('\n')
+async def _save_artist_songs_meta(out_file_path, songs_meta):
+    async with aiofiles.open(out_file_path, "ab") as out_file:
+        for song_meta in songs_meta:
+            await out_file.write(orjson.dumps(song_meta))
+            await out_file.write(b'\n')
             await out_file.flush()
+
+
+async def _save_artist_name(out_file_path, artist_name):
+    async with aiofiles.open(out_file_path, 'a') as out_file:
+        await out_file.write(artist_name)
+        await out_file.write('\n')
 
 
 async def _crawl_artist_id(requester: Requester, failed_artist_names_file_path, artist_name):
