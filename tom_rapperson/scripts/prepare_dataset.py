@@ -16,11 +16,11 @@ _TOKENIZER_CHUNK_SIZE = 10000
 
 def _parse_args():
     parser = ArgumentParser()
-    parser.add_argument('--train-songs-file-path', type=str, required=True)
-    parser.add_argument('--valid-songs-file-path', type=str, required=True)
-    parser.add_argument('--tokenizer-name-or-path', type=str, required=True)
-    parser.add_argument('--max-n-tokens', type=int, required=True)
-    parser.add_argument('--out-dir', type=str, required=True)
+    parser.add_argument('--train-songs-file-path', '-t', type=str, required=True)
+    parser.add_argument('--valid-songs-file-path', '-v', type=str, required=True)
+    parser.add_argument('--tokenizer-name-or-path', '-n', type=str, required=True)
+    parser.add_argument('--max-n-tokens', '-m', type=int, required=True)
+    parser.add_argument('--out-dir', '-o', type=str, required=True)
     return parser.parse_args()
 
 
