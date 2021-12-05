@@ -4,7 +4,7 @@ import re
 from pathlib import Path
 
 import numpy as np
-from transformers import AutoTokenizer
+from transformers import AutoTokenizer, GPT2TokenizerFast
 
 _MAX_VOCAB_SIZE_FOR_UINT16 = np.iinfo('uint16').max + 1
 _UNKNOWN_ARTIST_TOKEN = '[UNKNOWN_ARTIST]'
@@ -24,10 +24,15 @@ class SongsEncoder:
         self._tokenizer.add_special_tokens({'additional_special_tokens': sorted(artist_tokens)})
         self._vocab_size = len(self._tokenizer.get_vocab())
         self._dtype = np.dtype('uint16') if self._vocab_size < _MAX_VOCAB_SIZE_FOR_UINT16 else np.dtype('uint32')
+        self._new_line_token_id = self._tokenizer.encode('\n')[0]
 
     @property
     def vocab_size(self):
         return max(self._tokenizer.all_special_ids) + 1
+
+    @property
+    def new_line_token_id(self):
+        return self._new_line_token_id
 
     def encode(self, text, artist_name):
         text = self._prepare_text(text, artist_name)

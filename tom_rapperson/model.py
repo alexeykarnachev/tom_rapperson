@@ -17,6 +17,7 @@ def get_model_from_pl_checkpoint(file_path) -> GPT2LMHeadModel:
     state_dict = {re.sub(r'^_model\.', '', name): weights for name, weights in state_dict.items()}
     vocab_size = state_dict['transformer.wte.weight'].size()[0]
     gpt_config = json.loads(checkpoint['hyper_parameters']['gpt_config'])
+    gpt_config['use_past'] = True
     model = GPT2LMHeadModel(GPT2Config(**gpt_config))
     _resize_embeddings(model=model, vocab_size=vocab_size)
     model.load_state_dict(state_dict)
