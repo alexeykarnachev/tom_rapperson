@@ -1,4 +1,6 @@
 from argparse import ArgumentParser
+import json
+
 from collections import Counter
 from pathlib import Path
 
@@ -12,6 +14,7 @@ from tom_rapperson.encoder import SongsEncoder
 
 _UNKNOWN_ARTIST_NAME = 'UNKNOWN_ARTIST'
 _TOKENIZER_CHUNK_SIZE = 10000
+_DATASET_PARAMS_FILE_NAME = 'dataset_params.json'
 
 
 def _parse_args():
@@ -19,6 +22,7 @@ def _parse_args():
     parser.add_argument('--train-songs-file-path', '-t', type=str, required=True)
     parser.add_argument('--valid-songs-file-path', '-v', type=str, required=True)
     parser.add_argument('--tokenizer-name-or-path', '-n', type=str, required=True)
+    parser.add_argument('--split-song-by-n-lines', '-l', type=int, required=True)
     parser.add_argument('--max-n-tokens', '-m', type=int, required=True)
     parser.add_argument('--out-dir', '-o', type=str, required=True)
     return parser.parse_args()
@@ -51,7 +55,14 @@ def _iterate_on_text_and_artist_names_pairs(songs_file_path):
             yield text, artist_name
 
 
-def main(train_songs_file_path, valid_songs_file_path, tokenizer_name_or_path, max_n_tokens, out_dir):
+def main(
+        train_songs_file_path,
+        valid_songs_file_path,
+        tokenizer_name_or_path,
+        split_song_by_n_lines,
+        max_n_tokens,
+        out_dir,
+):
     Path(out_dir).mkdir(exist_ok=True, parents=True)
     artist_names_counter = _count_artist_names(train_songs_file_path)
     artist_names = _filter_artist_names(artist_names_counter, min_freq=50)
@@ -70,7 +81,14 @@ def main(train_songs_file_path, valid_songs_file_path, tokenizer_name_or_path, m
                 ),
                 desc='Chunks encoded',
         ):
-            texts, artist_names = zip(*text_and_artist_name_pairs)
+            texts = []
+            artist_names = []
+            for text, artist_name in text_and_artist_name_pairs:
+                text = text.strip()
+                lines = text.split('\n')
+                texts_ = ['\n'.join(lines) for lines in chunked(lines, split_song_by_n_lines)]
+                artist_names.extend(artist_name for _ in range(len(texts_)))
+                texts.extend(texts_)
             input_ids_ = encoder.batch_encode(texts=texts, artist_names=artist_names)
             input_ids.extend(input_ids_)
         sequence_lengths = np.array([len(x) for x in input_ids], dtype=np.uint16)
@@ -79,6 +97,16 @@ def main(train_songs_file_path, valid_songs_file_path, tokenizer_name_or_path, m
         data_out_dir.mkdir(exist_ok=True, parents=True)
         np.save(data_out_dir / INPUT_IDS_FILE_NAME, input_ids)
         np.save(data_out_dir / SEQUENCE_LENGTHS_FILE_NAME, sequence_lengths)
+        with open(data_out_dir / _DATASET_PARAMS_FILE_NAME, 'w') as out_file:
+            out_file.write(
+                json.dumps({
+                    'train_logs_file_path': train_songs_file_path,
+                    'valid_songs_file_path': valid_songs_file_path,
+                    'tokenizer_name_or_path': tokenizer_name_or_path,
+                    'split_song_by_n_lines': split_song_by_n_lines,
+                    'max_n_tokens': max_n_tokens,
+                    'out_dir': out_dir,
+                }))
 
 
 if __name__ == '__main__':
