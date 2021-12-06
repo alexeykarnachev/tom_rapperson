@@ -18,6 +18,7 @@ def _parse_args():
     parser.add_argument('--models-root-dir', required=True, type=str)
     parser.add_argument('--batch-size', required=True, type=int)
     parser.add_argument('--learning-rate', required=True, type=float)
+    parser.add_argument('--ul-alpha', required=True, type=float)
     parser.add_argument('--n-accum-steps', required=True, type=int)
     parser.add_argument('--warmup-ratio', required=True, type=float)
     parser.add_argument('--seed', required=True, type=int)
@@ -39,6 +40,7 @@ def main(
         models_root_dir,
         batch_size,
         learning_rate,
+        ul_alpha,
         n_accum_steps,
         warmup_ratio,
         seed,
@@ -53,6 +55,7 @@ def main(
         huggingface_model_name,
         batch_size * n_gpus * n_accum_steps,
         learning_rate,
+        ul_alpha,
         warmup_ratio,
         seed,
         n_epochs,
@@ -67,6 +70,7 @@ def main(
         data_dir=data_dir,
         batch_size=batch_size,
         learning_rate=learning_rate,
+        ul_alpha=ul_alpha,
         n_accum_steps=n_accum_steps,
         warmup_ratio=warmup_ratio,
         seed=seed,

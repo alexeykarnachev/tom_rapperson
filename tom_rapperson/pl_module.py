@@ -9,6 +9,7 @@ from transformers import AdamW, get_linear_schedule_with_warmup
 from tom_rapperson.dataset import SerializedDataset, get_n_samples
 from tom_rapperson.encoder import SongsEncoder
 from tom_rapperson.model import get_model_from_huggingface_pretrained
+from tom_rapperson.unlikelihood_loss import get_unlikelihood_loss
 
 
 class PLModule(LightningModule):
@@ -18,6 +19,7 @@ class PLModule(LightningModule):
             data_dir,
             batch_size,
             learning_rate,
+            ul_alpha,
             n_accum_steps,
             warmup_ratio,
             seed,
@@ -26,6 +28,7 @@ class PLModule(LightningModule):
         self._huggingface_model_name = huggingface_model_name
         self._batch_size = batch_size
         self._learning_rate = learning_rate
+        self._ul_alpha = ul_alpha
         self._n_accum_steps = n_accum_steps
         self._warmup_ratio = warmup_ratio
         self._seed = seed
@@ -58,22 +61,29 @@ class PLModule(LightningModule):
             attention_mask=input_ids != 0,
             return_dict=True,
         )
-        return output.loss
+        lm_loss = output.loss
+        ul_loss = get_unlikelihood_loss(output.logits, input_ids) * self._ul_alpha
+        loss = lm_loss + ul_loss
+        return loss, lm_loss, ul_loss
 
     def training_step(self, batch, batch_idx):
-        loss = self.forward(batch)
+        loss, lm_loss, ul_loss = self.forward(batch)
         current_lr = self.trainer.optimizers[0].param_groups[0]['lr']
         self.log('loss/train', loss, sync_dist=True, prog_bar=True)
+        self.log('lm_loss/train', lm_loss, sync_dist=True, prog_bar=True)
+        self.log('ul_loss/train', ul_loss, sync_dist=True, prog_bar=True)
         self.log('learning_rate', current_lr)
         return loss
 
     def validation_step(self, batch, batch_idx):
-        loss = self.forward(batch)
-        return loss.item()
+        loss, lm_loss, ul_loss = self.forward(batch)
+        return loss.item(), lm_loss.item(), ul_loss.item()
 
     def validation_epoch_end(self, outputs):
-        loss = np.mean(outputs)
-        self.log('loss/valid', loss, sync_dist=True, prog_bar=True)
+        losses, lm_losses, ul_losses = zip(*outputs)
+        self.log('loss/valid', np.mean(losses), sync_dist=True, prog_bar=True)
+        self.log('lm_loss/valid', np.mean(lm_losses), sync_dist=True, prog_bar=True)
+        self.log('ul_loss/valid', np.mean(ul_losses), sync_dist=True, prog_bar=True)
 
     def configure_optimizers(self):
         optimizer = AdamW(params=self._model.parameters(), lr=self._learning_rate)
