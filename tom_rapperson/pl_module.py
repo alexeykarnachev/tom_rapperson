@@ -3,6 +3,7 @@ import math
 from pathlib import Path
 
 import numpy as np
+import torch
 from pytorch_lightning import LightningModule
 from transformers import AdamW, get_linear_schedule_with_warmup
 
@@ -54,10 +55,13 @@ class PLModule(LightningModule):
         return self._get_dataloader(self._valid_dir)
 
     def forward(self, batch):
-        input_ids = batch[0]
+        input_ids, target_lengths = batch
+        labels = input_ids.clone()
+        for i, target_length in enumerate(target_lengths):
+            labels[i, :-target_length] = -100
         output = self._model(
             input_ids=input_ids,
-            labels=input_ids,
+            labels=labels,
             attention_mask=input_ids != 0,
             return_dict=True,
         )

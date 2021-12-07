@@ -11,14 +11,13 @@ class SongsGenerator:
     def __init__(self, model: GPT2LMHeadModel, encoder: SongsEncoder):
         self._model = model.eval()
         self._encoder = encoder
+        self._eos_token_id = self._encoder.new_line_token_id
 
-    def __call__(self, prefix, artist_name, n_candidates, gen_n_tokens, temperature, top_k, repetition_penalty):
-        input_ids = self._get_input_ids(
-            prefix=prefix,
-            artist_name=artist_name,
-            n_candidates=n_candidates,
-        )
-        gen_token_ids = self._generate(
+    def __call__(self, prefix, context, n_candidates, max_n_tokens, temperature, top_k, repetition_penalty):
+        input_ids = self._get_input_ids(prefix=prefix, context=context, n_candidates=n_candidates)
+        gen_n_tokens = max_n_tokens - input_ids.size()[1]
+        assert gen_n_tokens > 0
+        gen_token_ids, sample_lenghts = self._generate(
             input_ids=input_ids,
             gen_n_tokens=gen_n_tokens,
             top_k=top_k,
@@ -26,11 +25,16 @@ class SongsGenerator:
             repetition_penalty=repetition_penalty,
         )
         gen_token_ids = gen_token_ids.cpu().numpy().tolist()
-        candidates = [self._encoder.decode(x).rsplit('\n', 1)[0] for x in gen_token_ids]
+        samples_lengths = sample_lenghts.cpu().numpy().tolist()
+        candidates = []
+        for i in range(len(gen_token_ids)):
+            candidate_token_ids = gen_token_ids[i][:samples_lengths[i]]
+            candidate = self._encoder.decode(candidate_token_ids)
+            candidates.append(candidate)
         return candidates
 
-    def _get_input_ids(self, prefix, artist_name, n_candidates):
-        input_ids = self._encoder.encode(prefix, artist_name)
+    def _get_input_ids(self, prefix, context, n_candidates):
+        input_ids = self._encoder.encode_inference(prefix, context)
         input_ids = np.array([input_ids for _ in range(n_candidates)], dtype=np.int32)
         input_ids = torch.tensor(input_ids, dtype=torch.long, device=self._model.device)
         return input_ids
@@ -38,6 +42,7 @@ class SongsGenerator:
     def _generate(self, input_ids, gen_n_tokens, top_k, temperature, repetition_penalty):
         gen_token_ids = torch.zeros(len(input_ids), gen_n_tokens, dtype=torch.long, device=self._model.device)
         past_key_values = None
+        sample_lengths = torch.zeros(len(input_ids), dtype=torch.int32, device=self._model.device)
 
         for i_step in tqdm.trange(gen_n_tokens, desc='Generating'):
             model_out = self._model(
@@ -57,9 +62,12 @@ class SongsGenerator:
                 penalty=repetition_penalty,
             )
             gen_token_ids[:, i_step] = next_token_ids
+            sample_lengths[(sample_lengths == 0) & (next_token_ids == self._eos_token_id)] = i_step + 1
+            if torch.all(sample_lengths):
+                break
             input_ids = next_token_ids.unsqueeze(1)
             past_key_values = model_out.past_key_values
-        return gen_token_ids
+        return gen_token_ids, sample_lengths
 
 
 def _sample_next_token_ids(next_token_logits, top_k, temperature, token_ids_to_penalize, penalty):

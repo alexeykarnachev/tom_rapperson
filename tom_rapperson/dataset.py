@@ -9,6 +9,7 @@ from torch.utils.data import DataLoader, Dataset, Sampler
 
 INPUT_IDS_FILE_NAME = 'input_ids'
 SEQUENCE_LENGTHS_FILE_NAME = 'sequence_lengths'
+TARGET_LENGTHS_FILE_NAME = 'target_lengths'
 
 
 class SerializedDataset(Dataset):
@@ -16,6 +17,7 @@ class SerializedDataset(Dataset):
         dir_ = Path(dir_)
         self._input_ids = np.load(dir_ / (INPUT_IDS_FILE_NAME + '.npy'))
         self._sequence_lengths = np.load(dir_ / (SEQUENCE_LENGTHS_FILE_NAME + '.npy'))
+        self._target_lenghts = np.load(dir_ / (TARGET_LENGTHS_FILE_NAME + '.npy'))
         self._sequence_lengths_cumsum = np.cumsum(self._sequence_lengths)
 
     def __len__(self):
@@ -25,7 +27,9 @@ class SerializedDataset(Dataset):
         start_idx = 0 if idx == 0 else self._sequence_lengths_cumsum[idx - 1]
         end_idx = start_idx + self._sequence_lengths[idx]
         input_ids = self._input_ids[start_idx:end_idx]
-        return (torch.tensor(input_ids.astype(np.int64), dtype=torch.long), )
+        target_length = torch.tensor(self._target_lenghts[idx].astype(np.int32), dtype=torch.long)
+        input_ids = torch.tensor(input_ids.astype(np.int64), dtype=torch.long)
+        return (input_ids, target_length)
 
     def get_dataloader(self, batch_size, seed):
         return DataLoader(

@@ -47,6 +47,7 @@ def _clean_noise_in_lines(song_lines):
     for line in song_lines:
         line = re.sub(r'<.*?>', '', line)
         line = re.sub(r'}\".+?\">', '', line)
+        line = re.sub(r'\(.*?\)', '', line)
         line = re.sub(r'\s+', ' ', line).strip()
         lines.append(line)
     return lines
@@ -65,7 +66,8 @@ def _remove_repetitive_lines(song_lines):
     appeared_lines = set()
     filetered_lines = []
     for line in song_lines:
-        line_signature = re.sub(r'[^\w+ ]', '', line).lower()
+        words = re.findall(r'\w+', line)
+        line_signature = ' '.join(sorted(set(word.lower() for word in words)))
         if line_signature in appeared_lines:
             continue
         appeared_lines.add(line_signature)
