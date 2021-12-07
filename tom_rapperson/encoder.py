@@ -55,8 +55,8 @@ class SongsEncoder:
         prefix += _END_OF_PREFIX_TOKEN
         context = context.strip() + '\n'
         prefix_input_ids = self._tokenizer.encode(prefix)[-self._max_n_prefix_tokens:]
-        prefix_n_tokens = len(prefix_input_ids)
         context_input_ids = self._tokenizer.encode(context)
+        prefix_n_tokens = len(prefix_input_ids)
         input_ids = prefix_input_ids + context_input_ids[-(self._max_n_tokens - prefix_n_tokens):]
         return input_ids
 

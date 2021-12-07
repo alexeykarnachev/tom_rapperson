@@ -13,8 +13,19 @@ class SongsGenerator:
         self._encoder = encoder
         self._eos_token_id = self._encoder.new_line_token_id
 
-    def __call__(self, prefix, context, n_candidates, max_n_tokens, temperature, top_k, repetition_penalty):
+    def __call__(
+            self,
+            prefix,
+            context,
+            n_candidates,
+            max_n_tokens,
+            gen_min_n_tokens,
+            temperature,
+            top_k,
+            repetition_penalty,
+    ):
         input_ids = self._get_input_ids(prefix=prefix, context=context, n_candidates=n_candidates)
+        input_ids = input_ids[:, -(max_n_tokens - gen_min_n_tokens):]
         gen_n_tokens = max_n_tokens - input_ids.size()[1]
         assert gen_n_tokens > 0
         gen_token_ids, sample_lenghts = self._generate(
