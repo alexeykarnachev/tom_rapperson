@@ -64,6 +64,7 @@ def main(
     model_dir.mkdir(exist_ok=True, parents=True)
     with open(model_dir / 'args.json', 'w') as out_file:
         json.dump(vars(args), out_file, indent=2)
+
     SongsEncoder.load(data_dir).save(model_dir)
     pl_module = PLModule(
         huggingface_model_name=huggingface_model_name,
@@ -89,6 +90,11 @@ def main(
         mode='min',
         dirpath=model_dir / 'checkpoints',
     )
+    
+    checkpoint_file_path = model_dir / 'checkpoints/last.ckpt'
+    if not checkpoint_file_path.exists():
+        checkpoint_file_path = None
+
     trainer = Trainer(
         gpus=n_gpus,
         replace_sampler_ddp=False,
@@ -102,6 +108,7 @@ def main(
         logger=logger,
         val_check_interval=val_check_interval,
         accumulate_grad_batches=n_accum_steps,
+        resume_from_checkpoint=checkpoint_file_path,
     )
     trainer.fit(pl_module)
 

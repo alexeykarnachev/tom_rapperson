@@ -31,14 +31,14 @@ class SerializedDataset(Dataset):
         input_ids = torch.tensor(input_ids.astype(np.int64), dtype=torch.long)
         return (input_ids, target_length)
 
-    def get_dataloader(self, batch_size, seed):
+    def get_dataloader(self, batch_size, seed, samples_offset):
         return DataLoader(
             dataset=self,
             batch_size=batch_size,
             sampler=_LengthSortSampler(
                 lengths=self._sequence_lengths,
                 sort_chunk_size=batch_size * 10,
-                samples_offset=0,
+                samples_offset=samples_offset,
                 seed=seed,
                 is_distributed=False,
             ),

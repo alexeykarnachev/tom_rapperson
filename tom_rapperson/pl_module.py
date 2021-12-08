@@ -40,6 +40,8 @@ class PLModule(LightningModule):
         encoder = SongsEncoder.load(data_dir)
         self._vocab_size = encoder.vocab_size
         self._model = None
+        self._samples_offset = 0
+        self.save_hyperparameters()
 
     def prepare_data(self):
         self._get_model()
@@ -49,10 +51,10 @@ class PLModule(LightningModule):
         self.hparams['gpt_config'] = json.dumps(self._model.config.__dict__, ensure_ascii=False)
 
     def train_dataloader(self):
-        return self._get_dataloader(self._train_dir)
+        return self._get_dataloader(self._train_dir, samples_offset=self._samples_offset)
 
     def val_dataloader(self):
-        return self._get_dataloader(self._valid_dir)
+        return self._get_dataloader(self._valid_dir, samples_offset=0)
 
     def forward(self, batch):
         input_ids, target_lengths = batch
@@ -102,9 +104,24 @@ class PLModule(LightningModule):
         lr_scheduler = {'scheduler': lr_scheduler, 'interval': 'step', 'frequency': 1}
         return [optimizer], [lr_scheduler]
 
-    def _get_dataloader(self, dir_):
+    def on_load_checkpoint(self, checkpoint):
+        self.samples_offset = checkpoint['samples_offset']
+
+    def on_save_checkpoint(self, checkpoint) -> None:
+        world_size = self.trainer.world_size
+        samples_offset = self.batch_size * world_size * checkpoint['global_step']
+        checkpoint['samples_offset'] = samples_offset
+        checkpoint['world_size'] = world_size
+        checkpoint['epoch'] = self.trainer.current_epoch
+        _logger.info(f'Data samples seen so far: {samples_offset}')
+
+    def _get_dataloader(self, dir_, samples_offset):
         dataset = SerializedDataset(dir_)
-        dataloader = dataset.get_dataloader(batch_size=self._batch_size, seed=self._seed)
+        dataloader = dataset.get_dataloader(
+            batch_size=self._batch_size,
+            seed=self._seed,
+            samples_offset=samples_offset,
+        )
         return dataloader
 
     def _get_model(self):

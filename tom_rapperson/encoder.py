@@ -1,22 +1,39 @@
+import inspect
 import json
 from pathlib import Path
+from typing import Iterable, Sequence
 
 import numpy as np
 from transformers import AutoTokenizer
 
 _MAX_VOCAB_SIZE_FOR_UINT16 = np.iinfo('uint16').max + 1
 _END_OF_PREFIX_TOKEN = '[END_OF_PREFIX]'
+_SPECIAL_TOKENS = [_END_OF_PREFIX_TOKEN]
 
 
 class SongsEncoder:
     _ENCODER_FILE_NAME = 'encoder.json'
 
-    def __init__(self, tokenizer_name_or_path, max_n_tokens, max_n_prefix_tokens):
+    def __init__(
+            self,
+            tokenizer_name_or_path,
+            max_n_context_lines,
+            max_n_prefix_tokens,
+            max_n_context_tokens,
+            max_n_target_tokens,
+    ):
+        self._arg_to_value = {}
+        for arg in inspect.getargspec(self.__init__).args:
+            if arg != 'self':
+                self._arg_to_value[arg] = locals()[arg]
         self._tokenize_name_or_path = tokenizer_name_or_path
-        self._max_n_tokens = max_n_tokens
+        self._max_n_context_lines = max_n_context_lines
         self._max_n_prefix_tokens = max_n_prefix_tokens
+        self._max_n_context_tokens = max_n_context_tokens
+        self._max_n_target_tokens = max_n_target_tokens
+        self._max_n_tokens = max_n_prefix_tokens + max_n_context_tokens + max_n_target_tokens
         self._tokenizer = AutoTokenizer.from_pretrained(tokenizer_name_or_path)
-        self._tokenizer.add_special_tokens({'additional_special_tokens': [_END_OF_PREFIX_TOKEN]})
+        self._tokenizer.add_special_tokens({'additional_special_tokens': _SPECIAL_TOKENS})
         self._vocab_size = len(self._tokenizer.get_vocab())
         self._dtype = np.dtype('uint16') if self._vocab_size < _MAX_VOCAB_SIZE_FOR_UINT16 else np.dtype('uint32')
         self._new_line_token_id = self._tokenizer.encode('\n')[0]
@@ -29,51 +46,76 @@ class SongsEncoder:
     def new_line_token_id(self):
         return self._new_line_token_id
 
-    def batch_encode_train(self, prefixes, contexts, targets):
-        prefixes = [prefix + _END_OF_PREFIX_TOKEN for prefix in prefixes]
-        contexts = [context.strip() + '\n' for context in contexts]
-        targets = [target.strip() + '\n' for target in targets]
-        prefixes_input_ids = self._tokenizer.batch_encode_plus(list(prefixes), return_attention_mask=False)
-        contexts_input_ids = self._tokenizer.batch_encode_plus(list(contexts), return_attention_mask=False)
-        targets_input_ids = self._tokenizer.batch_encode_plus(list(targets), return_attention_mask=False)
-        samples = []
+    def iterate_on_train_samples(
+            self,
+            prefixes: Iterable[str],
+            contexts: Iterable[Sequence[str]],
+            targets: Iterable[str],
+    ):
+        prefixes = [self._prepare_prefix(prefix) for prefix in prefixes]
+        contexts = [self._prepare_context(context) for context in contexts]
+        targets = [self._prepare_target(target) for target in targets]
+        prefixes_input_ids = self._batch_encode(prefixes)
+        contexts_input_ids = self._batch_encode(contexts)
+        targets_input_ids = self._batch_encode(targets)
         for prefix_input_ids, context_input_ids, target_input_ids in zip(
-                prefixes_input_ids.input_ids,
-                contexts_input_ids.input_ids,
-                targets_input_ids.input_ids,
+                prefixes_input_ids,
+                contexts_input_ids,
+                targets_input_ids,
         ):
-            prefix_input_ids = prefix_input_ids[-self._max_n_prefix_tokens:]
-            prefix_n_tokens = len(prefix_input_ids)
-            input_ids = (context_input_ids + target_input_ids)[-(self._max_n_tokens - prefix_n_tokens):]
-            target_n_tokens = len(target_input_ids) if len(input_ids) >= len(target_input_ids) else len(input_ids)
-            input_ids = prefix_input_ids + input_ids
-            assert len(input_ids) <= self._max_n_tokens
-            samples.append((np.array(input_ids, dtype=self._dtype), target_n_tokens))
-        return samples
+            if len(target_input_ids) > self._max_n_target_tokens:
+                continue
+            input_ids = self._concat_input_ids(
+                prefix_input_ids=prefix_input_ids,
+                context_input_ids=context_input_ids,
+                target_input_ids=target_input_ids,
+            )
+            target_n_tokens = len(target_input_ids)
+            yield (input_ids, target_n_tokens)
 
-    def encode_inference(self, prefix, context):
-        prefix += _END_OF_PREFIX_TOKEN
-        context = context.strip() + '\n'
-        prefix_input_ids = self._tokenizer.encode(prefix)[-self._max_n_prefix_tokens:]
+    def encode_inference(self, prefix, context: Sequence[str]):
+        prefix = self._prepare_prefix(prefix)
+        context = self._prepare_context(context)
+        prefix_input_ids = self._tokenizer.encode(prefix)
         context_input_ids = self._tokenizer.encode(context)
-        prefix_n_tokens = len(prefix_input_ids)
-        input_ids = prefix_input_ids + context_input_ids[-(self._max_n_tokens - prefix_n_tokens):]
+        input_ids = self._concat_input_ids(
+            prefix_input_ids=prefix_input_ids,
+            context_input_ids=context_input_ids,
+            target_input_ids=[],
+        )
         return input_ids
 
     def decode(self, input_ids):
         return self._tokenizer.decode(input_ids)
 
     def save(self, out_dir):
-        params = {
-            'tokenizer_name_or_path': self._tokenize_name_or_path,
-            'max_n_tokens': self._max_n_tokens,
-            'max_n_prefix_tokens': self._max_n_tokens,
-        }
         with open(Path(out_dir) / self._ENCODER_FILE_NAME, 'w') as out_file:
-            json.dump(params, out_file, indent=2, ensure_ascii=False)
+            json.dump(self._arg_to_value, out_file, indent=2, ensure_ascii=False)
 
     @classmethod
     def load(cls, dir_):
         with open(Path(dir_) / cls._ENCODER_FILE_NAME) as inp_file:
             params = json.load(inp_file)
         return cls(**params)
+
+    def _concat_input_ids(self, prefix_input_ids, context_input_ids, target_input_ids):
+        prefix_input_ids = prefix_input_ids[-self._max_n_prefix_tokens:]
+        context_input_ids = context_input_ids[-self._max_n_context_tokens:]
+        input_ids = prefix_input_ids + context_input_ids + target_input_ids
+        assert len(input_ids) <= self._max_n_tokens
+        input_ids = np.array(input_ids, dtype=self._dtype)
+        return input_ids
+
+    def _batch_encode(self, texts):
+        return self._tokenizer.batch_encode_plus(list(texts), return_attention_mask=False).input_ids
+
+    def _prepare_prefix(self, prefix):
+        return prefix + _END_OF_PREFIX_TOKEN
+
+    def _prepare_context(self, context: Sequence[str]) -> str:
+        context = context[-self._max_n_context_lines:]
+        context = '\n'.join(line.strip() for line in context)
+        return context
+
+    def _prepare_target(self, target: str) -> str:
+        return '\n' + target.strip()
