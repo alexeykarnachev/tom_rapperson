@@ -1,3 +1,5 @@
+from typing import Sequence
+
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -15,22 +17,17 @@ class SongsGenerator:
 
     def __call__(
             self,
-            prefix,
-            context,
+            prefix: str,
+            context: Sequence[str],
             n_candidates,
-            max_n_tokens,
-            gen_min_n_tokens,
             temperature,
             top_k,
             repetition_penalty,
     ):
         input_ids = self._get_input_ids(prefix=prefix, context=context, n_candidates=n_candidates)
-        input_ids = input_ids[:, -(max_n_tokens - gen_min_n_tokens):]
-        gen_n_tokens = max_n_tokens - input_ids.size()[1]
-        assert gen_n_tokens > 0
         gen_token_ids, sample_lenghts = self._generate(
             input_ids=input_ids,
-            gen_n_tokens=gen_n_tokens,
+            gen_n_tokens=self._encoder.max_n_target_toknes,
             top_k=top_k,
             temperature=temperature,
             repetition_penalty=repetition_penalty,
@@ -78,6 +75,8 @@ class SongsGenerator:
                 break
             input_ids = next_token_ids.unsqueeze(1)
             past_key_values = model_out.past_key_values
+
+        sample_lengths[sample_lengths == 0] = i_step + 1
         return gen_token_ids, sample_lengths
 
 

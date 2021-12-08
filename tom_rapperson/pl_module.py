@@ -3,7 +3,6 @@ import math
 from pathlib import Path
 
 import numpy as np
-import torch
 from pytorch_lightning import LightningModule
 from transformers import AdamW, get_linear_schedule_with_warmup
 
@@ -105,15 +104,15 @@ class PLModule(LightningModule):
         return [optimizer], [lr_scheduler]
 
     def on_load_checkpoint(self, checkpoint):
-        self.samples_offset = checkpoint['samples_offset']
+        self._samples_offset = checkpoint['samples_offset']
 
     def on_save_checkpoint(self, checkpoint) -> None:
         world_size = self.trainer.world_size
-        samples_offset = self.batch_size * world_size * checkpoint['global_step']
+        samples_offset = self._batch_size * world_size * checkpoint['global_step']
         checkpoint['samples_offset'] = samples_offset
         checkpoint['world_size'] = world_size
         checkpoint['epoch'] = self.trainer.current_epoch
-        _logger.info(f'Data samples seen so far: {samples_offset}')
+        print(f'Data samples seen so far: {samples_offset}')
 
     def _get_dataloader(self, dir_, samples_offset):
         dataset = SerializedDataset(dir_)

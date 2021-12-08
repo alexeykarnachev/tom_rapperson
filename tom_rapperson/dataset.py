@@ -163,3 +163,11 @@ def _count_worker_n_samples(dataset_n_samples, world_size, rank):
     # Worker may have one more sample in case of dataset number of samples is not devisable by world size:
     remainder = (dataset_n_samples % world_size) > rank
     return worker_n_samples + remainder
+
+
+if __name__ == '__main__':
+    from tom_rapperson.encoder import SongsEncoder
+    dir_ = Path('/ssd_1/tom_rapperson/data/encoded/conditioned')
+    e = SongsEncoder.load(dir_)
+    d = SerializedDataset(dir_ / 'train')
+    print(e.decode(d[0][0]))

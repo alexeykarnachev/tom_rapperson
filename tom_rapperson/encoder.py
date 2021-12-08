@@ -46,6 +46,10 @@ class SongsEncoder:
     def new_line_token_id(self):
         return self._new_line_token_id
 
+    @property
+    def max_n_target_toknes(self):
+        return self._max_n_target_tokens
+
     def iterate_on_train_samples(
             self,
             prefixes: Iterable[str],
@@ -114,8 +118,8 @@ class SongsEncoder:
 
     def _prepare_context(self, context: Sequence[str]) -> str:
         context = context[-self._max_n_context_lines:]
-        context = '\n'.join(line.strip() for line in context)
+        context = '\n'.join(line.strip() for line in context) + '\n'
         return context
 
     def _prepare_target(self, target: str) -> str:
-        return '\n' + target.strip()
+        return target.strip() + '\n'

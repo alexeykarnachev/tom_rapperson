@@ -1,4 +1,5 @@
 import re
+import random
 from argparse import ArgumentParser
 from itertools import chain
 from pathlib import Path
@@ -83,13 +84,17 @@ def _iterate_on_samples(file_path, max_n_context_lines):
 def _get_prefix_from_target(target):
     words = re.findall(r'\w+', target)
     if len(words) <= 2:
-        return ''
+        n_words = random.randint(0, 1)
     elif len(words) <= 5:
-        return words[-1].lower()
-    elif len(words) <= 10:
-        return ' '.join(word.lower() for word in words[-2:])
+        n_words = random.randint(0, 2)
     else:
-        return ' '.join(word.lower() for word in words[-3:])
+        n_words = random.randint(0, 3)
+
+    if n_words > 0:
+        prefix = ' '.join(word.lower() for word in words[-n_words:])
+    else:
+        prefix = ''
+    return prefix
 
 
 if __name__ == '__main__':
