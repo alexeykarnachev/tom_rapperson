@@ -170,4 +170,9 @@ if __name__ == '__main__':
     dir_ = Path('/ssd_1/tom_rapperson/data/encoded/conditioned')
     e = SongsEncoder.load(dir_)
     d = SerializedDataset(dir_ / 'train')
-    print(e.decode(d[0][0]))
+
+    for input_ids, target_n_tokens in d:
+        context = e.decode(input_ids[:-target_n_tokens])
+        target = e.decode(input_ids[-target_n_tokens:])
+        print(f'Context: {context}, Target: {target}')
+        print('-' * 80)

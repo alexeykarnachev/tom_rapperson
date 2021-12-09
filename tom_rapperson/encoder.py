@@ -1,11 +1,16 @@
 import inspect
 import json
+import random
+import re
+from itertools import chain
 from pathlib import Path
 from typing import Iterable, Sequence
 
 import numpy as np
+from more_itertools import chunked, windowed
 from transformers import AutoTokenizer
 
+_TOKENIZER_CHUNK_SIZE = 10000
 _MAX_VOCAB_SIZE_FOR_UINT16 = np.iinfo('uint16').max + 1
 _END_OF_PREFIX_TOKEN = '[END_OF_PREFIX]'
 _SPECIAL_TOKENS = [_END_OF_PREFIX_TOKEN]
@@ -50,32 +55,26 @@ class SongsEncoder:
     def max_n_target_toknes(self):
         return self._max_n_target_tokens
 
-    def iterate_on_train_samples(
-            self,
-            prefixes: Iterable[str],
-            contexts: Iterable[Sequence[str]],
-            targets: Iterable[str],
-    ):
-        prefixes = [self._prepare_prefix(prefix) for prefix in prefixes]
-        contexts = [self._prepare_context(context) for context in contexts]
-        targets = [self._prepare_target(target) for target in targets]
-        prefixes_input_ids = self._batch_encode(prefixes)
-        contexts_input_ids = self._batch_encode(contexts)
-        targets_input_ids = self._batch_encode(targets)
-        for prefix_input_ids, context_input_ids, target_input_ids in zip(
-                prefixes_input_ids,
-                contexts_input_ids,
-                targets_input_ids,
-        ):
-            if len(target_input_ids) > self._max_n_target_tokens:
-                continue
-            input_ids = self._concat_input_ids(
-                prefix_input_ids=prefix_input_ids,
-                context_input_ids=context_input_ids,
-                target_input_ids=target_input_ids,
-            )
-            target_n_tokens = len(target_input_ids)
-            yield (input_ids, target_n_tokens)
+    def iterate_on_train_samples(self, songs: Iterable[str]):
+        for parts in chunked(self._iterate_on_train_sample_parts(songs), n=_TOKENIZER_CHUNK_SIZE):
+            prefixes, contexts, targets = zip(*parts)
+            prefixes_input_ids = self._batch_encode(prefixes)
+            contexts_input_ids = self._batch_encode(contexts)
+            targets_input_ids = self._batch_encode(targets)
+            for prefix_input_ids, context_input_ids, target_input_ids in zip(
+                    prefixes_input_ids,
+                    contexts_input_ids,
+                    targets_input_ids,
+            ):
+                if len(target_input_ids) > self._max_n_target_tokens:
+                    continue
+                input_ids = self._concat_input_ids(
+                    prefix_input_ids=prefix_input_ids,
+                    context_input_ids=context_input_ids,
+                    target_input_ids=target_input_ids,
+                )
+                target_n_tokens = len(target_input_ids)
+                yield (input_ids, target_n_tokens)
 
     def encode_inference(self, prefix, context: Sequence[str]):
         prefix = self._prepare_prefix(prefix)
@@ -123,3 +122,36 @@ class SongsEncoder:
 
     def _prepare_target(self, target: str) -> str:
         return target.strip() + '\n'
+
+    def _iterate_on_train_sample_parts(self, songs: Iterable[str]):
+        for song in songs:
+            lines = song.split('\n')
+            lines = [line.strip() for line in lines]
+            lines = [line for line in lines if len(line) > 1]
+            lines = chain(('' for _ in range(self._max_n_context_lines)), lines)
+
+            for lines_window in windowed(lines, self._max_n_context_lines + 1):
+                *context, target = lines_window
+                if target is None:
+                    continue
+                context = [line for line in context if line.strip()]
+                prefix = _get_prefix_from_target(target)
+                if prefix is not None:
+                    prefix = self._prepare_prefix(prefix)
+                    context = self._prepare_context(context)
+                    target = self._prepare_target(target)
+                    yield prefix, context, target
+
+
+def _get_prefix_from_target(target):
+    words = re.findall(r'\w+', target)
+    if len(words) <= 2:
+        return None
+    elif len(words) <= 4:
+        n_words = 1
+    elif len(words) <= 8:
+        n_words = random.randint(1, 2)
+    else:
+        n_words = random.randint(1, 3)
+    prefix = ' '.join(word.lower() for word in words[-n_words:])
+    return prefix
