@@ -15,6 +15,7 @@ class SongsGenerator:
         self._encoder = encoder
         self._eos_token_id = self._encoder.new_line_token_id
 
+    @torch.no_grad()
     def __call__(
             self,
             prefix: str,

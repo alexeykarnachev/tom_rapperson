@@ -133,4 +133,4 @@ dmypy.json
 nohup.out
 cmd
 wandb/
-tmp.py
+tmp*

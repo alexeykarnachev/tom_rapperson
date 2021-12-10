@@ -2,11 +2,11 @@ from argparse import ArgumentParser
 from pathlib import Path
 
 import numpy as np
-import orjson
 import tqdm
 
 from tom_rapperson.dataset import INPUT_IDS_FILE_NAME, SEQUENCE_LENGTHS_FILE_NAME, TARGET_LENGTHS_FILE_NAME
 from tom_rapperson.encoder import SongsEncoder
+from tom_rapperson.utils import iterate_on_songs
 
 
 def _parse_args():
@@ -42,7 +42,7 @@ def main(
     )
     encoder.save(out_dir)
     for data_name, songs_file_path in (('train', train_songs_file_path), ('valid', valid_songs_file_path)):
-        songs = _iterate_on_songs(songs_file_path)
+        songs = tqdm.tqdm(iterate_on_songs(songs_file_path), desc='Songs')
         samples = encoder.iterate_on_train_samples(songs)
         input_ids, target_n_tokens = zip(*samples)
 
@@ -55,14 +55,6 @@ def main(
         np.save(data_out_dir / INPUT_IDS_FILE_NAME, input_ids)
         np.save(data_out_dir / SEQUENCE_LENGTHS_FILE_NAME, sequence_lengths)
         np.save(data_out_dir / TARGET_LENGTHS_FILE_NAME, target_n_tokens)
-
-
-def _iterate_on_songs(file_path):
-    with open(file_path) as inp_file:
-        for line in tqdm.tqdm(inp_file, desc='Songs'):
-            data = orjson.loads(line)
-            song = data['text']
-            yield song
 
 
 if __name__ == '__main__':
