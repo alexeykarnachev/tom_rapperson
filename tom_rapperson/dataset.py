@@ -9,27 +9,50 @@ from torch.utils.data import DataLoader, Dataset, Sampler
 
 INPUT_IDS_FILE_NAME = 'input_ids'
 SEQUENCE_LENGTHS_FILE_NAME = 'sequence_lengths'
-TARGET_LENGTHS_FILE_NAME = 'target_lengths'
+PREFIX_LENGTHS_FILE_NAME = 'prefix_lengths'
+POST_LENGTHS_FILE_NAME = 'post_lengths'
 
 
 class SerializedDataset(Dataset):
-    def __init__(self, dir_):
+    def __init__(self, dir_, distractor_p, end_of_prefix_token_id, end_of_target_token_id):
         dir_ = Path(dir_)
+        self._distractor_p = distractor_p
+        self._end_of_prefix_token_id = end_of_prefix_token_id
+        self._end_of_target_token_id = end_of_target_token_id
         self._input_ids = np.load(dir_ / (INPUT_IDS_FILE_NAME + '.npy'))
+        self._prefix_lengths = np.load(dir_ / (PREFIX_LENGTHS_FILE_NAME + '.npy'))
         self._sequence_lengths = np.load(dir_ / (SEQUENCE_LENGTHS_FILE_NAME + '.npy'))
-        self._target_lenghts = np.load(dir_ / (TARGET_LENGTHS_FILE_NAME + '.npy'))
+        self._post_lengths = np.load(dir_ / (POST_LENGTHS_FILE_NAME + '.npy'))
         self._sequence_lengths_cumsum = np.cumsum(self._sequence_lengths)
+        self._prefix_length_to_idx = {}
+        for idx, length in enumerate(self._prefix_lengths):
+            self._prefix_length_to_idx.setdefault(length, [])
+            self._prefix_length_to_idx[length].append(idx)
 
     def __len__(self):
         return len(self._artist_ids)
 
     def __getitem__(self, idx):
+        input_ids = self._get_input_ids(idx)
+
+        is_distractor = self._distractor_p > np.random.rand()
+        if is_distractor:
+            prefix_length = self._prefix_lengths[idx]
+            distractor_idx = np.random.choice(self._prefix_length_to_idx.get(prefix_length))
+            distractor_input_ids = self._get_input_ids(distractor_idx)
+            input_ids[:prefix_length] = distractor_input_ids[:prefix_length]
+
+        post_length = torch.tensor(self._post_lengths[idx].astype(np.int32), dtype=torch.long)
+        input_ids = torch.tensor(input_ids.astype(np.int64), dtype=torch.long)
+        is_distractor = torch.tensor(is_distractor, dtype=torch.long)
+        cls_token_pos = torch.where(input_ids == self._end_of_target_token_id)[0][0]
+        return input_ids, post_length, cls_token_pos, is_distractor
+
+    def _get_input_ids(self, idx):
         start_idx = 0 if idx == 0 else self._sequence_lengths_cumsum[idx - 1]
         end_idx = start_idx + self._sequence_lengths[idx]
         input_ids = self._input_ids[start_idx:end_idx]
-        target_length = torch.tensor(self._target_lenghts[idx].astype(np.int32), dtype=torch.long)
-        input_ids = torch.tensor(input_ids.astype(np.int64), dtype=torch.long)
-        return (input_ids, target_length)
+        return input_ids
 
     def get_dataloader(self, batch_size, seed, samples_offset):
         return DataLoader(
@@ -42,7 +65,7 @@ class SerializedDataset(Dataset):
                 seed=seed,
                 is_distributed=False,
             ),
-            num_workers=1,
+            num_workers=24,
             collate_fn=_PaddingCollator(pad_value=0),
         )
 
@@ -167,12 +190,17 @@ def _count_worker_n_samples(dataset_n_samples, world_size, rank):
 
 if __name__ == '__main__':
     from tom_rapperson.encoder import SongsEncoder
-    dir_ = Path('/ssd_1/tom_rapperson/data/encoded/conditioned')
+    dir_ = Path('/ssd_1/tom_rapperson/data/encoded/distractor')
     e = SongsEncoder.load(dir_)
-    d = SerializedDataset(dir_ / 'train')
+    d = SerializedDataset(
+        dir_ / 'train',
+        distractor_p=0.5,
+        end_of_prefix_token_id=e.end_of_prefix_token_id,
+        end_of_target_token_id=e.end_of_target_token_id,
+    )
 
-    for input_ids, target_n_tokens in d:
-        context = e.decode(input_ids[:-target_n_tokens])
-        target = e.decode(input_ids[-target_n_tokens:])
-        print(f'Context: {context}, Target: {target}')
+    for input_ids, post_length, cls_token_pos, is_distractor in d:
+        context = e.decode(input_ids[:-post_length])
+        post = e.decode(input_ids[-post_length:])
+        print(f'Context: {context}, Post: {post}')
         print('-' * 80)

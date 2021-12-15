@@ -20,6 +20,7 @@ class PLModule(LightningModule):
             batch_size,
             learning_rate,
             ul_alpha,
+            distractor_p,
             n_accum_steps,
             warmup_ratio,
             seed,
@@ -29,6 +30,7 @@ class PLModule(LightningModule):
         self._batch_size = batch_size
         self._learning_rate = learning_rate
         self._ul_alpha = ul_alpha
+        self._distractor_p = distractor_p
         self._n_accum_steps = n_accum_steps
         self._warmup_ratio = warmup_ratio
         self._seed = seed
@@ -36,8 +38,8 @@ class PLModule(LightningModule):
         self._train_dir = data_dir / 'train'
         self._valid_dir = data_dir / 'valid'
         self._n_train_samples = get_n_samples(self._train_dir)
-        encoder = SongsEncoder.load(data_dir)
-        self._vocab_size = encoder.vocab_size
+        self._encoder = SongsEncoder.load(data_dir)
+        self._vocab_size = self._encoder.vocab_size
         self._model = None
         self._samples_offset = 0
         self.save_hyperparameters()
@@ -47,7 +49,7 @@ class PLModule(LightningModule):
 
     def setup(self, stage):
         self._model = self._get_model()
-        self.hparams['gpt_config'] = json.dumps(self._model.config.__dict__, ensure_ascii=False)
+        self.hparams['gpt_config'] = json.dumps(self._model.backbone.config.__dict__, ensure_ascii=False)
 
     def train_dataloader(self):
         return self._get_dataloader(self._train_dir, samples_offset=self._samples_offset)
@@ -56,39 +58,42 @@ class PLModule(LightningModule):
         return self._get_dataloader(self._valid_dir, samples_offset=0)
 
     def forward(self, batch):
-        input_ids, target_lengths = batch
-        labels = input_ids.clone()
-        for i, target_length in enumerate(target_lengths):
-            labels[i, :-target_length] = -100
-        output = self._model(
+        input_ids, post_lengths, cls_token_positions, is_distractor = batch
+        lm_labels = input_ids.clone()
+        for i, (post_length, is_distractor_) in enumerate(zip(post_lengths, is_distractor)):
+            if is_distractor_:
+                lm_labels[i, :] = -100
+            else:
+                lm_labels[i, :-post_length] = -100
+        losses = self._model(
             input_ids=input_ids,
-            labels=labels,
-            attention_mask=input_ids != 0,
-            return_dict=True,
+            is_distractor=is_distractor,
+            lm_labels=lm_labels,
+            cls_token_positions=cls_token_positions,
+            ul_alpha=self._ul_alpha,
         )
-        lm_loss = output.loss
-        ul_loss = get_unlikelihood_loss(output.logits, input_ids) * self._ul_alpha
-        loss = lm_loss + ul_loss
-        return loss, lm_loss, ul_loss
+        return losses
 
     def training_step(self, batch, batch_idx):
-        loss, lm_loss, ul_loss = self.forward(batch)
+        loss, lm_loss, ul_loss, distratcor_loss = self.forward(batch)
         current_lr = self.trainer.optimizers[0].param_groups[0]['lr']
         self.log('loss/train', loss, sync_dist=True, prog_bar=True)
         self.log('lm_loss/train', lm_loss, sync_dist=True, prog_bar=True)
         self.log('ul_loss/train', ul_loss, sync_dist=True, prog_bar=True)
+        self.log('distractor_loss/train', distratcor_loss, sync_dist=True, prog_bar=True)
         self.log('learning_rate', current_lr)
         return loss
 
     def validation_step(self, batch, batch_idx):
-        loss, lm_loss, ul_loss = self.forward(batch)
-        return loss.item(), lm_loss.item(), ul_loss.item()
+        loss, lm_loss, ul_loss, distratcor_loss = self.forward(batch)
+        return loss.item(), lm_loss.item(), ul_loss.item(), distratcor_loss.item()
 
     def validation_epoch_end(self, outputs):
-        losses, lm_losses, ul_losses = zip(*outputs)
+        losses, lm_losses, ul_losses, distractor_losses = zip(*outputs)
         self.log('loss/valid', np.mean(losses), sync_dist=True, prog_bar=True)
         self.log('lm_loss/valid', np.mean(lm_losses), sync_dist=True, prog_bar=True)
         self.log('ul_loss/valid', np.mean(ul_losses), sync_dist=True, prog_bar=True)
+        self.log('distractor_loss/valid', np.mean(distractor_losses), sync_dist=True, prog_bar=True)
 
     def configure_optimizers(self):
         optimizer = AdamW(params=self._model.parameters(), lr=self._learning_rate)
@@ -115,7 +120,12 @@ class PLModule(LightningModule):
         print(f'Data samples seen so far: {samples_offset}')
 
     def _get_dataloader(self, dir_, samples_offset):
-        dataset = SerializedDataset(dir_)
+        dataset = SerializedDataset(
+            dir_=dir_,
+            distractor_p=self._distractor_p,
+            end_of_prefix_token_id=self._encoder.end_of_prefix_token_id,
+            end_of_target_token_id=self._encoder.end_of_target_token_id,
+        )
         dataloader = dataset.get_dataloader(
             batch_size=self._batch_size,
             seed=self._seed,

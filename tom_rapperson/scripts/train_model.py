@@ -19,6 +19,7 @@ def _parse_args():
     parser.add_argument('--batch-size', required=True, type=int)
     parser.add_argument('--learning-rate', required=True, type=float)
     parser.add_argument('--ul-alpha', required=True, type=float)
+    parser.add_argument('--distractor-p', required=True, type=float)
     parser.add_argument('--n-accum-steps', required=True, type=int)
     parser.add_argument('--warmup-ratio', required=True, type=float)
     parser.add_argument('--seed', required=True, type=int)
@@ -41,6 +42,7 @@ def main(
         batch_size,
         learning_rate,
         ul_alpha,
+        distractor_p,
         n_accum_steps,
         warmup_ratio,
         seed,
@@ -56,6 +58,7 @@ def main(
         batch_size * n_gpus * n_accum_steps,
         learning_rate,
         ul_alpha,
+        distractor_p,
         warmup_ratio,
         seed,
         n_epochs,
@@ -72,6 +75,7 @@ def main(
         batch_size=batch_size,
         learning_rate=learning_rate,
         ul_alpha=ul_alpha,
+        distractor_p=distractor_p,
         n_accum_steps=n_accum_steps,
         warmup_ratio=warmup_ratio,
         seed=seed,

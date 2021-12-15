@@ -1,17 +1,74 @@
 import json
+from tom_rapperson.unlikelihood_loss import get_unlikelihood_loss
+import torch.nn as nn
 import re
 
 import torch
 from transformers import GPT2Config, GPT2LMHeadModel
 
 
-def get_model_from_huggingface_pretrained(model_name, vocab_size) -> GPT2LMHeadModel:
-    model = GPT2LMHeadModel.from_pretrained(model_name)
+class Model(nn.Module):
+    def __init__(self, gpt2_model: GPT2LMHeadModel):
+        super().__init__()
+        self._gpt2_model = gpt2_model
+        self._distractor_clf = nn.Linear(self._gpt2_model.config.hidden_size, 2)
+        self._calc_distractor_loss = nn.CrossEntropyLoss()
+
+    @property
+    def backbone(self):
+        return self._gpt2_model
+
+    @property
+    def device(self):
+        return next(self.parameters()).device
+
+    def forward(
+            self,
+            input_ids,
+            is_distractor,
+            lm_labels,
+            cls_token_positions,
+            ul_alpha,
+    ):
+        gpt2_model_output = self.calc_gpt2_model_output(
+            input_ids=input_ids,
+            lm_labels=lm_labels,
+        )
+        distractor_logits = self.calc_distractor_logits(
+            last_hidden_state=gpt2_model_output.hidden_states[-1],
+            cls_token_positions=cls_token_positions,
+        )
+        distractor_loss = self._calc_distractor_loss(distractor_logits, is_distractor)
+        ul_loss = get_unlikelihood_loss(gpt2_model_output.logits, input_ids) * ul_alpha
+        lm_loss = gpt2_model_output.loss
+        loss = lm_loss + ul_loss + distractor_loss
+        return loss, lm_loss, ul_loss, distractor_loss
+
+    def calc_gpt2_model_output(self, input_ids, lm_labels=None, past_key_values=None):
+        return self._gpt2_model(
+            input_ids=input_ids,
+            labels=lm_labels,
+            attention_mask=input_ids != 0,
+            return_dict=True,
+            past_key_values=past_key_values,
+        )
+
+    def calc_distractor_logits(self, last_hidden_state, cls_token_positions):
+        new_shape = (last_hidden_state.size()[0] * last_hidden_state.size()[1], -1)
+        shift = torch.arange(0, new_shape[0], last_hidden_state.size()[1], device=last_hidden_state.device)
+        last_hidden_state = last_hidden_state.reshape(new_shape)
+        cls_state = last_hidden_state[cls_token_positions + shift]
+        distractor_logits = self._distractor_clf(cls_state)
+        return distractor_logits
+
+
+def get_model_from_huggingface_pretrained(model_name, vocab_size) -> Model:
+    model = GPT2LMHeadModel.from_pretrained(model_name, output_hidden_states=True)
     _resize_embeddings(model, vocab_size)
-    return model
+    return Model(model)
 
 
-def get_model_from_pl_checkpoint(file_path) -> GPT2LMHeadModel:
+def get_model_from_pl_checkpoint(file_path) -> Model:
     checkpoint = torch.load(f=file_path, map_location='cpu')
     state_dict = checkpoint['state_dict']
     state_dict = {re.sub(r'^_model\.', '', name): weights for name, weights in state_dict.items()}
@@ -20,6 +77,7 @@ def get_model_from_pl_checkpoint(file_path) -> GPT2LMHeadModel:
     gpt_config['use_past'] = True
     model = GPT2LMHeadModel(GPT2Config(**gpt_config))
     _resize_embeddings(model=model, vocab_size=vocab_size)
+    model = Model(model)
     model.load_state_dict(state_dict)
     return model
 
