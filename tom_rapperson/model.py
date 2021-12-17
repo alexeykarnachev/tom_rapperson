@@ -44,13 +44,21 @@ class Model(nn.Module):
         loss = lm_loss + ul_loss + distractor_loss
         return loss, lm_loss, ul_loss, distractor_loss
 
-    def calc_gpt2_model_output(self, input_ids, lm_labels=None, past_key_values=None):
+    def calc_gpt2_model_output(
+            self,
+            input_ids,
+            lm_labels=None,
+            past_key_values=None,
+            position_ids=None,
+    ):
         return self._gpt2_model(
             input_ids=input_ids,
             labels=lm_labels,
             attention_mask=input_ids != 0,
             return_dict=True,
             past_key_values=past_key_values,
+            use_cache=True,
+            position_ids=position_ids,
         )
 
     def calc_distractor_logits(self, last_hidden_state, cls_token_positions):
@@ -59,6 +67,10 @@ class Model(nn.Module):
         last_hidden_state = last_hidden_state.reshape(new_shape)
         cls_state = last_hidden_state[cls_token_positions + shift]
         distractor_logits = self._distractor_clf(cls_state)
+        return distractor_logits
+
+    def calc_distractor_logits_1_token(self, last_hidden_state):
+        distractor_logits = self._distractor_clf(last_hidden_state.squeeze(1))
         return distractor_logits
 
 
@@ -72,7 +84,7 @@ def get_model_from_pl_checkpoint(file_path) -> Model:
     checkpoint = torch.load(f=file_path, map_location='cpu')
     state_dict = checkpoint['state_dict']
     state_dict = {re.sub(r'^_model\.', '', name): weights for name, weights in state_dict.items()}
-    vocab_size = state_dict['transformer.wte.weight'].size()[0]
+    vocab_size = state_dict['_gpt2_model.transformer.wte.weight'].size()[0]
     gpt_config = json.loads(checkpoint['hyper_parameters']['gpt_config'])
     gpt_config['use_past'] = True
     model = GPT2LMHeadModel(GPT2Config(**gpt_config))

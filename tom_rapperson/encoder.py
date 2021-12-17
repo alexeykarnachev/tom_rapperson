@@ -42,6 +42,7 @@ class SongsEncoder:
         self._vocab_size = len(self._tokenizer.get_vocab())
         self._dtype = np.dtype('uint16') if self._vocab_size < _MAX_VOCAB_SIZE_FOR_UINT16 else np.dtype('uint32')
         self._new_line_token_id = self._tokenizer.encode('\n')[0]
+        self._space_token_id = self._tokenizer.encode(' ')[0]
         self._end_of_target_token_id = self._tokenizer.convert_tokens_to_ids(_END_OF_TARGET_TOKEN)
         self._end_of_prefix_token_id = self._tokenizer.convert_tokens_to_ids(_END_OF_PREFIX_TOKEN)
 
@@ -99,11 +100,18 @@ class SongsEncoder:
             prefix_input_ids=prefix_input_ids,
             context_input_ids=context_input_ids,
             target_input_ids=[],
+            postfix_input_ids=[],
         )
         return input_ids
 
     def decode(self, input_ids):
-        return self._tokenizer.decode(input_ids)
+        try:
+            end_of_target_pos = input_ids.index(self.end_of_target_token_id)
+            input_ids = list(input_ids)
+            input_ids[end_of_target_pos] = self._space_token_id
+        except ValueError:
+            pass
+        return self._tokenizer.decode(input_ids, skip_special_tokens=True)
 
     def save(self, out_dir):
         with open(Path(out_dir) / self._ENCODER_FILE_NAME, 'w') as out_file:
