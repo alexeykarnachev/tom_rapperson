@@ -19,6 +19,7 @@ def _parse_args():
     parser.add_argument('--batch-size', required=True, type=int)
     parser.add_argument('--learning-rate', required=True, type=float)
     parser.add_argument('--ul-alpha', required=True, type=float)
+    parser.add_argument('--distractor-p', required=True, type=float)
     parser.add_argument('--n-accum-steps', required=True, type=int)
     parser.add_argument('--warmup-ratio', required=True, type=float)
     parser.add_argument('--seed', required=True, type=int)
@@ -41,6 +42,7 @@ def main(
         batch_size,
         learning_rate,
         ul_alpha,
+        distractor_p,
         n_accum_steps,
         warmup_ratio,
         seed,
@@ -56,6 +58,7 @@ def main(
         batch_size * n_gpus * n_accum_steps,
         learning_rate,
         ul_alpha,
+        distractor_p,
         warmup_ratio,
         seed,
         n_epochs,
@@ -64,6 +67,7 @@ def main(
     model_dir.mkdir(exist_ok=True, parents=True)
     with open(model_dir / 'args.json', 'w') as out_file:
         json.dump(vars(args), out_file, indent=2)
+
     SongsEncoder.load(data_dir).save(model_dir)
     pl_module = PLModule(
         huggingface_model_name=huggingface_model_name,
@@ -71,6 +75,7 @@ def main(
         batch_size=batch_size,
         learning_rate=learning_rate,
         ul_alpha=ul_alpha,
+        distractor_p=distractor_p,
         n_accum_steps=n_accum_steps,
         warmup_ratio=warmup_ratio,
         seed=seed,
@@ -89,6 +94,11 @@ def main(
         mode='min',
         dirpath=model_dir / 'checkpoints',
     )
+    
+    checkpoint_file_path = model_dir / 'checkpoints/last.ckpt'
+    if not checkpoint_file_path.exists():
+        checkpoint_file_path = None
+
     trainer = Trainer(
         gpus=n_gpus,
         replace_sampler_ddp=False,
@@ -102,6 +112,7 @@ def main(
         logger=logger,
         val_check_interval=val_check_interval,
         accumulate_grad_batches=n_accum_steps,
+        resume_from_checkpoint=checkpoint_file_path,
     )
     trainer.fit(pl_module)
 

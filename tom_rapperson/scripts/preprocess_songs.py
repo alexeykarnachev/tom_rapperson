@@ -64,15 +64,15 @@ def _remove_header_lines(song_lines):
 
 def _remove_repetitive_lines(song_lines):
     appeared_lines = set()
-    filetered_lines = []
+    filtered_lines = []
     for line in song_lines:
         words = re.findall(r'\w+', line)
         line_signature = ' '.join(sorted(set(word.lower() for word in words)))
         if line_signature in appeared_lines:
             continue
         appeared_lines.add(line_signature)
-        filetered_lines.append(line)
-    return filetered_lines
+        filtered_lines.append(line)
+    return filtered_lines
 
 
 if __name__ == '__main__':
