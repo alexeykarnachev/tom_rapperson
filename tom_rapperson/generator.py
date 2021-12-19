@@ -69,7 +69,7 @@ class SongsGenerator:
             candidate = candidates[ind]
             n_words = len(re.findall(r'[А-яЁё]+', candidate))
             n_letters = len(re.findall(r'[А-яЁё]', candidate))
-            if (4 <= n_words <= 8) and (18 <= n_letters <= 38) and '>' not in candidate:
+            if (6 <= n_words <= 8) and (25 <= n_letters <= 38):
                 return ind
         return argsort_inds[0]
 
