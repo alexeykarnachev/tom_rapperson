@@ -105,6 +105,7 @@ class SongsEncoder:
         return input_ids
 
     def decode(self, input_ids):
+        input_ids = input_ids.cpu().numpy().tolist()
         try:
             end_of_target_pos = input_ids.index(self.end_of_target_token_id)
             input_ids = list(input_ids)

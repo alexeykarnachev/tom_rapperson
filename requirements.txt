@@ -4,3 +4,4 @@ transformers==4.12.5
 orjson==3.6.5
 wandb==0.12.7
 pymorphy2[fast]==0.9.1
+tom_rhymer @ git+https://github.com/alexeykarnachev/tom_rhymer@1.0.0#egg=tom_rhymer 

@@ -77,19 +77,9 @@ def get_n_samples(dir_):
 
 class _PaddingCollator:
     def __init__(self, pad_value):
-        """Collator which stacks tensor vectors into the tensor matrices by padding them to the equal size.
-
-        :param pad_value: Value to fill padded output matrices values from the right.
-        """
         self._pad_value = pad_value
 
     def __call__(self, data_items):
-        """
-        :param data_items: Iterable of items. Each item is a collection of single sample vectors or scalars.
-
-        :return: List of tensors. i-th tensor contains each i-th element from every data item, stacked together
-            and padded from right side with padding value.
-        """
         return [self._pad_vectors(vectors) for vectors in zip(*data_items)]
 
     def _pad_vectors(self, vectors):
@@ -106,25 +96,6 @@ class _PaddingCollator:
 
 class _LengthSortSampler(Sampler):
     def __init__(self, lengths, sort_chunk_size, samples_offset=0, seed=42, is_distributed=True):
-        """Pytorch almost-random sampler. It prepares samples in such a way, that each batch contains similar sized
-        samples. It allows to apply efficient dynamic batching to reduce the general amount fo the padding tokens.
-
-        :param lengths: Sequence, with data sample length.
-        :param sort_chunk_size: Int, Number of samples to be sorted together: in order to preserve the randomness, we
-            split the dataset into parts by `sort_chunk_size` number of sampler and sort sampler just inside these
-            parts. And then, we shuffle parts (but not samples inside them).
-            So, in general, you want to set this size at least as your batch size. In this case, all batches will have
-            almost equal sized samples inside them.
-        :param samples_offset: Int, number of samples to skip for a first epoch (second epoch will start from the
-            beginning). If you pass the number larger than the actual dataset number of samples, the actual offset will
-            be `samples_offset % dataset_n_samples`.
-        :param seed: Int, Random seed to shuffle a dataset indexes. If None, no shuffling will be
-            performed.
-        :param is_distributed: If False, sampler will return all indexes (even if the world size is greater than 1: all
-            workers will return all indexes). If True, only worker-specific indexes will be produced. The worker id
-            is determined by its local rank.
-        """
-
         self._dataset_n_samples = len(lengths)
         self._current_offset = samples_offset % self._dataset_n_samples
         self._rank, self._world_size = _get_rank_and_world_size(is_distributed)
@@ -141,8 +112,6 @@ class _LengthSortSampler(Sampler):
         start = self._current_offset + self._rank
         for i in range(start, self._dataset_n_samples, self._world_size):
             yield self._inds[i]
-
-        # Reset offset to 0, so the next iteration will start from the beginning.
         self._current_offset = 0
 
     def __len__(self):
@@ -150,10 +119,6 @@ class _LengthSortSampler(Sampler):
 
 
 def _get_length_sort_sampler_inds(lengths, sort_chunk_size, seed):
-    """Provides indexes for sampler.
-    Puts the largest samples at the beginning (to warm up the model)
-    and groups other samples in chunks by their lengths.
-    """
     inds = np.argsort(lengths)
     largest_chunk = inds[-sort_chunk_size:][::-1]
     inds_chunks = list(chunked(inds[:-sort_chunk_size], sort_chunk_size))
@@ -163,8 +128,6 @@ def _get_length_sort_sampler_inds(lengths, sort_chunk_size, seed):
 
 
 def _get_rank_and_world_size(is_distributed):
-    """Get rank and world size for a current gpu worker. If `is_distributed` is False, returns (0, 1) tuple."""
-
     if is_distributed:
         rank = get_rank()
         world_size = get_world_size()
@@ -175,32 +138,10 @@ def _get_rank_and_world_size(is_distributed):
 
 
 def _count_worker_n_samples(dataset_n_samples, world_size, rank):
-    """Calculates number of samples for a single worker process."""
-
     if rank >= world_size:
         raise ValueError('`rank` must be lower than `world_size`.')
     elif world_size > dataset_n_samples:
         raise ValueError('`world_size` must be lower or equal to `dataset_n_samples`.')
     worker_n_samples = dataset_n_samples // world_size
-
-    # Worker may have one more sample in case of dataset number of samples is not devisable by world size:
     remainder = (dataset_n_samples % world_size) > rank
     return worker_n_samples + remainder
-
-
-if __name__ == '__main__':
-    from tom_rapperson.encoder import SongsEncoder
-    dir_ = Path('/ssd_1/tom_rapperson/data/encoded/distractor')
-    e = SongsEncoder.load(dir_)
-    d = SerializedDataset(
-        dir_ / 'train',
-        distractor_p=0.5,
-        end_of_prefix_token_id=e.end_of_prefix_token_id,
-        end_of_target_token_id=e.end_of_target_token_id,
-    )
-
-    for input_ids, post_length, cls_token_pos, is_distractor in d:
-        context = e.decode(input_ids[:-post_length])
-        post = e.decode(input_ids[-post_length:])
-        print(f'Context: {context}, Post: {post}')
-        print('-' * 80)
