@@ -65,15 +65,13 @@ class SongsGenerator:
         scores, candidates = zip(*scored_candidates)
         argsort_inds = np.argsort(scores)
         ind = None
-        for i in argsort_inds:
-            candidate = candidates[i]
+        for ind in argsort_inds:
+            candidate = candidates[ind]
             n_words = len(re.findall(r'[А-яЁё]+', candidate))
             n_letters = len(re.findall(r'[А-яЁё]', candidate))
             if (4 <= n_words <= 8) and (18 <= n_letters <= 38) and '>' not in candidate:
-                ind = i
-                break
-        ind = ind if ind is not None else 0
-        return argsort_inds[ind]
+                return ind
+        return argsort_inds[0]
 
     @torch.no_grad()
     def _generate(
