@@ -185,18 +185,3 @@ def _get_target_split_idx(target):
     search_res = re.search(r'\w+\W*?$', target)
     split_idx = search_res.span()[0]
     return split_idx
-
-
-if __name__ == '__main__':
-    target = 'Кто как играет, кого что качает...'
-    from transformers import GPT2TokenizerFast
-    t = AutoTokenizer.from_pretrained('sberbank-ai/rugpt3medium_based_on_gpt2')
-    print(t.convert_tokens_to_ids('dfas'))
-    idx = _get_target_split_idx(target)
-    prefix, postfix = target[:idx], target[idx:]
-    prefix_ids = t.encode(prefix)
-    postfix_ids = t.encode(postfix)
-    target_ids = t.encode(target)
-
-    print(prefix_ids, postfix_ids, t.decode(prefix_ids) + t.decode(postfix_ids))
-    print(target_ids, target)

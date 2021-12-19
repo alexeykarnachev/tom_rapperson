@@ -9,7 +9,6 @@ from transformers import AdamW, get_linear_schedule_with_warmup
 from tom_rapperson.dataset import SerializedDataset, get_n_samples
 from tom_rapperson.encoder import SongsEncoder
 from tom_rapperson.model import get_model_from_huggingface_pretrained
-from tom_rapperson.unlikelihood_loss import get_unlikelihood_loss
 
 
 class PLModule(LightningModule):

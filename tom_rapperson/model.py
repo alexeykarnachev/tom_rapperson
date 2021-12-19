@@ -1,10 +1,11 @@
 import json
-from tom_rapperson.unlikelihood_loss import get_unlikelihood_loss
-import torch.nn as nn
 import re
 
 import torch
+import torch.nn as nn
 from transformers import GPT2Config, GPT2LMHeadModel
+
+from tom_rapperson.unlikelihood_loss import get_unlikelihood_loss
 
 
 class Model(nn.Module):
